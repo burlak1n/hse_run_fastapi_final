@@ -6,7 +6,9 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.auth.router import router as router_auth
-
+from sqladmin import Admin
+from app.dao.database import engine
+from app.cms.views import UserAdmin, RoleAdmin
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
@@ -73,7 +75,11 @@ def register_routers(app: FastAPI) -> None:
     # Подключение роутеров
     app.include_router(root_router, tags=["root"])
     app.include_router(router_auth, prefix='/auth', tags=['Auth'])
-
+    app.include_router(router_cms, prefix='/cms', tags=['CMS'])
 
 # Создание экземпляра приложения
 app = create_app()
+admin = Admin(app, engine)
+
+admin.add_view(UserAdmin)
+admin.add_view(RoleAdmin)
