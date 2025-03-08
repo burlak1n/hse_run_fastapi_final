@@ -1,0 +1,368 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+}
+
+.container { 
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+h1 {
+    text-align: center;
+    color: #2c3e50;
+    margin-bottom: 2rem;
+}
+
+.login-container {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.user-info {
+    display: none;
+    background-color: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    margin-top: 15px;
+    width: 100%;
+}
+
+.logout-btn {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+.user-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-bottom: 10px;
+}
+
+.error-message {
+    color: #e74c3c;
+    margin-top: 10px;
+    font-size: 14px;
+    display: none;
+}
+
+.header-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.nav-link {
+    color: #0088cc;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.nav-link:hover {
+    text-decoration: underline;
+}
+
+.button {
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.button:hover {
+    transform: translateY(-1px);
+}
+
+.login-button {
+    background-color: #0088cc;
+    color: white;
+}
+
+.login-button:hover {
+    background-color: #006699;
+}
+
+.profile-button {
+    background-color: #4CAF50;
+    color: white;
+    margin-right: 10px;
+}
+
+.profile-button:hover {
+    background-color: #45a049;
+}
+
+.logout-button {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.logout-button:hover {
+    background-color: #c0392b;
+}
+
+.button-container {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.auth-status {
+    text-align: center;
+    margin: 20px 0;
+    padding: 10px;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+}
+
+.user-welcome {
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+.team-section {
+    margin-top: 30px;
+    padding: 20px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    width: 100%;
+}
+
+.team-section h3 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+}
+
+.team-section h4 {
+    color: #34495e;
+    margin: 15px 0;
+}
+
+.team-members {
+    margin-top: 20px;
+}
+
+.team-member {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: center;
+}
+
+.member-name {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.create-btn {
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 10px;
+}
+
+.create-btn:hover {
+    background-color: #219a52;
+}
+
+.add-btn {
+    background-color: #3498db;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 10px;
+}
+
+.add-btn:hover {
+    background-color: #2980b9;
+}
+
+.remove-member-btn {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.remove-member-btn:hover {
+    background-color: #c0392b;
+}
+
+.save-btn {
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 15px;
+    display: block;
+}
+
+.save-btn:hover {
+    background-color: #27ae60;
+}
+
+/* Карточка приглашения */
+.card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.card h2 {
+    color: #2c3e50;
+    margin-top: 0;
+}
+
+/* Кнопки и действия */
+.actions {
+    margin-top: 2rem;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.8rem 1.5rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.btn.primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.btn.primary:hover {
+    background-color: #2980b9;
+}
+
+/* Сообщения */
+.message {
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.message.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.message.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.message.info {
+    background-color: #cce5ff;
+    color: #004085;
+    border: 1px solid #b8daff;
+}
+
+/* Навигация */
+.navigation {
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.navigation a {
+    color: #3498db;
+    text-decoration: none;
+    margin: 0 1rem;
+}
+
+.navigation a:hover {
+    text-decoration: underline;
+}
+
+/* Приветствие пользователя */
+#user-greeting {
+    text-align: center;
+    font-size: 1.1rem;
+    color: #2c3e50;
+    margin: 1rem 0;
+}
+
+/* Адаптивность */
+@media (max-width: 600px) {
+    .container {
+        margin: 1rem auto;
+    }
+    
+    .card {
+        padding: 1rem;
+    }
+    
+    .actions {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+/* Telegram Login Widget */
+.telegram-login {
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0;
+}
+
+/* Центрирование iframe виджета */
+.telegram-login iframe {
+    margin: 0 auto;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 600px) {
+    .telegram-login {
+        margin: 0.5rem 0;
+    }
+} 
