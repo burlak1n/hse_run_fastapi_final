@@ -1,4 +1,4 @@
-from typing import List, TypeVar, Generic, Type
+from typing import List, TypeVar, Generic, Type, Optional
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
@@ -30,13 +30,13 @@ class BaseDAO(Generic[T]):
             logger.error(f"Ошибка при поиске записи с ID {data_id}: {e}")
             raise
 
-    async def find_one_or_none(self, filters: BaseModel):
+    async def find_one_or_none(self, filters: BaseModel) -> Optional[T]:
         filter_dict = filters.model_dump(exclude_unset=True)
         logger.info(f"Поиск одной записи {self.model.__name__} по фильтрам: {filter_dict}")
         try:
             query = select(self.model).filter_by(**filter_dict)
             result = await self._session.execute(query)
-            record = result.scalar_one_or_none()
+            record = result.unique().scalar_one_or_none()
             log_message = f"Запись {'найдена' if record else 'не найдена'} по фильтрам: {filter_dict}"
             logger.info(log_message)
             return record
