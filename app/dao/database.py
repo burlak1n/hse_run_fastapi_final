@@ -13,10 +13,8 @@ async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_
 str_uniq = Annotated[str, mapped_column(unique=True, nullable=False)]
 int_uniq = Annotated[int, mapped_column(unique=True, nullable=False)]
 
-class Base(AsyncAttrs, DeclarativeBase):
+class BaseNoID(AsyncAttrs, DeclarativeBase):
     __abstract__ = True
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP,
@@ -59,3 +57,7 @@ class Base(AsyncAttrs, DeclarativeBase):
     def __repr__(self) -> str:
         """Строковое представление объекта для удобства отладки."""
         return f"<{self.__class__.__name__}(id={self.id}, created_at={self.created_at}, updated_at={self.updated_at})>"
+
+class Base(BaseNoID):
+    __abstract__ = True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

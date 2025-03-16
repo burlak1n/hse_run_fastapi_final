@@ -1,11 +1,17 @@
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-class TelegramModel(BaseModel):
+
+class UserID(BaseModel):
     telegram_id: int = Field(description="Идентификатор пользователя в Telegram")
+
+class TelegramModel(UserID):
     telegram_username: str = Field(description="Имя пользователя в Telegram")
 
-class UserBase(TelegramModel):
+class UserFullname(BaseModel):
     full_name: str = Field(description="Имя и фамилия пользователя")
+
+class UserBase(TelegramModel, UserFullname, UserID):
+    pass
 
 class SUserRegister(UserBase):
     pass
