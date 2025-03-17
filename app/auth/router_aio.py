@@ -4,19 +4,22 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import select
 
-from app.auth.models import User, RoleUserCommand, Role
-from app.auth.dao import CommandsUsersDAO, UsersDAO
-from app.auth.schemas import UserBase, UserFullname, UserID, TelegramModel
+from app.auth.models import CommandsUser, User, RoleUserCommand, Role, Event
+from app.auth.dao import CommandsDAO, CommandsUsersDAO, UsersDAO, EventsDAO
+from app.auth.schemas import UserBase, UserFullname, UserID, TelegramModel, CommandBase, EventID
 from app.dependencies.dao_dep import get_session_with_commit
 from app.exceptions import UserAlreadyExistsException
 from app.logger import logger
+
+EVENT_NAME = "HSERUN29"
 
 class Auth(StatesGroup):
     full_name = State()
     change_full_name = State()
     create_command = State()
-
+    change_command_name = State()
 router = Router()
 
 @router.message(Command("start"))
@@ -107,36 +110,60 @@ async def create_command(callback: CallbackQuery, state: FSMContext):
 @router.message(Auth.create_command)
 async def process_create_command(message: Message, state: FSMContext):
     await state.update_data(command_name=message.text)
-    data = await state.get_data()
-    await message.answer("Команда успешно создана")
-
-async def init_router():
     async for session in get_session_with_commit():
-        rolesusercommand = [
-            RoleUserCommand(name="member"),
-            RoleUserCommand(name="captain"),
-        ]
+        users_dao = UsersDAO(session)
+        user = await users_dao.find_one_or_none(filters=UserID(telegram_id=message.from_user.id))
+        if user:
+            command_dao = CommandsDAO(session)
+            event_dao = EventsDAO(session)
+            event = await event_dao.find_one_or_none(filters=EventID(name=EVENT_NAME))
+            
+            command = await command_dao.add(values=CommandBase(name=message.text, event_id=event.id))
 
-        roles = [
-            Role(name="guest"),
-            Role(name="organizer"),
-            Role(name="insider"),
-        ]
+            stmt = select(RoleUserCommand).where(RoleUserCommand.name.in_(["captain", "member"]))
+            result = await session.execute(stmt)
+            roles = result.scalars().all()
+            
+            role_captain = next((role for role in roles if role.name == "captain"), None)
+            command_user = await users_dao.create_command_user(command_id=command.id, user_id=user.id, role_id=role_captain.id)
+             
+            await message.answer("Команда успешно создана")
+            text, keyboard = await get_profile_text(user)
+            await message.answer(text, reply_markup=keyboard)
+        else:
+            await message.answer("Пользователь не найден")
 
-        # Добавляем роли в базу данных
-        session.add_all(rolesusercommand)
-        session.add_all(roles)
+@router.callback_query(F.data == "change_command_name")
+async def change_command_name(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer("Введите новое название команды")
+    await state.set_state(Auth.change_command_name)
 
-        session.commit()
+@router.message(Auth.change_command_name)
+async def process_change_command_name(message: Message, state: FSMContext):
+    await state.update_data(command_name=message.text)
+    async for session in get_session_with_commit():
+        users_dao = UsersDAO(session)
+        user = await users_dao.find_one_or_none(filters=UserID(telegram_id=message.from_user.id))
+        if user:
+            command_dao = CommandsDAO(session)
+            command = await command_dao.find_one_or_none(filters=CommandID(name=message.text))
+            if command:
+                await command_dao.update(CommandID(name=message.text), CommandBase(name=message.text))
+                await message.answer("Название команды успешно изменено")
 
 def get_info_user(user: User):
     return repr(user)
 
-# async def get_info_command_user(user: User):
-#     async for session in get_session_with_commit():
-#         command_dao = CommandsUsersDAO(session)
-#         command_users = await command_dao.find_all(UserID(command_id=user.command_id))
-#         return repr(command_users)
+async def get_info_command_user(user: User):
+    async for session in get_session_with_commit():
+        users_dao = UsersDAO(session)
+        command_users = await users_dao.find_user_command_in_event(user.id, EVENT_NAME)
+        if command_users:
+            is_captain = await users_dao.is_user_captain_in_command(user.id, command_users.id)
+            return command_users, is_captain
+        return None
+
 
 async def get_profile_text(user: User):
     user_info = get_info_user(user)
@@ -144,12 +171,20 @@ async def get_profile_text(user: User):
     builder.button(text="Изменить ФИО", callback_data="change_full_name")
     builder.button(text="Удалить аккаунт", callback_data="delete_account")
     # builder.button(text="Выйти из профиля", callback_data="exit_profile")
-    # command_info = await get_info_command_user(user)
-    # if command_info:
-    #     text = f"{user_info}\n\n{command_info}"
-    #     builder.button(text="Выйти из команды", callback_data="exit_command")
-    # else:
-    #     text = user_info
-    #     builder.button(text="Создать команду", callback_data="create_command")
-    text = user_info
+    command_info = await get_info_command_user(user)
+    if command_info:
+        command_info_str = repr(command_info[0])
+        if command_info[1]:
+            text = f"{user_info}\n\n{command_info_str}"
+            builder.button(text="Пригласить в команду", callback_data="invite_command")
+            builder.button(text="Удалить команду", callback_data="delete_command")
+            builder.button(text="Изменить название команды", callback_data="change_command_name")
+        else:
+            text = f"{user_info}\n\nВы член команды {command_info[0].name}"
+            builder.button(text="Выйти из команды", callback_data="exit_command")
+    else:
+        text = user_info
+        builder.button(text="Создать команду", callback_data="create_command")
+    
+    builder.adjust(2)  # Ограничиваем количество кнопок в строке до 2
     return text, builder.as_markup()

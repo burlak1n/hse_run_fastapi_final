@@ -39,3 +39,10 @@ class SUserInfo(UserBase):
     @computed_field
     def role_id(self) -> int:
         return self.role.id
+
+class CommandBase(BaseModel):
+    name: str
+    event_id: int
+
+class EventID(BaseModel):
+    name: str

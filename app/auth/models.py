@@ -42,6 +42,17 @@ class Command(Base):
     # Связь с мероприятием
     event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False)
     event: Mapped["Event"] = relationship("Event", back_populates="commands")
+
+    def __repr__(self):
+        participants = []
+        for idx, user_assoc in enumerate(self.users_association, start=1):
+            role = user_assoc.role.name if user_assoc.role else ""
+            participant_info = f"{idx}. {user_assoc.user.full_name}"
+            if role:
+                participant_info += f" | {role}"
+            participants.append(participant_info)
+        participants_str = "\n".join(participants)
+        return f"Команда: {self.name} | {len(self.users_association)}/6\n{participants_str}"
     # __table_args__ = (
     #     CheckConstraint('count_users >= 1 AND count_users <= 100', name='check_count_users_range'),
     # )

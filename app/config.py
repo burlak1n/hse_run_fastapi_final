@@ -14,3 +14,5 @@ class Settings(BaseSettings):
 # Получаем параметры для загрузки переменных среды
 settings = Settings()
 database_url = settings.DB_URL
+
+EVENT_NAME = "HSERUN29"
