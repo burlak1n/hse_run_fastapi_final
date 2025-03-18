@@ -239,3 +239,34 @@ async def get_profile_text(user: User):
     builder.button(text="Назад", callback_data="menu")
     builder.adjust(2)  # Ограничиваем количество кнопок в строке до 2
     return text, builder.as_markup()
+
+async def user_middleware(handler, event, data):
+    """Middleware для получения пользователя по сессии"""
+    user_id = event.from_user.id
+    async for session in get_session_with_commit():
+        # Получаем токен сессии
+        session_dao = SessionDAO(session)
+        session_token = await session_dao.get_session_token(user_id)
+        
+        # Проверяем наличие сессии
+        if not session_token:
+            await event.answer("Сессия не найдена")
+            return
+        
+        # Ищем пользователя по telegram_id
+        users_dao = UsersDAO(session)
+        user = await users_dao.find_one_or_none(filters=UserID(telegram_id=user_id))
+        
+        # Проверяем наличие пользователя
+        if not user:
+            await event.answer("Пользователь не найден")
+            return
+        
+        # Возвращаем пользователя и токен сессии
+        return {
+            'user': user,
+            'session_token': session_token
+        }
+
+router.message.middleware(user_middleware)
+router.callback_query.middleware(user_middleware)

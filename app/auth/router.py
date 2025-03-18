@@ -1,14 +1,19 @@
 from typing import List
-from fastapi import APIRouter, Response, Depends
+from fastapi import APIRouter, Response, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from datetime import datetime, timedelta, timezone
+import secrets
 
-from app.auth.models import User
-from app.auth.utils import authenticate_user, set_tokens
+from app.auth.models import User, Session
+from app.auth.utils import set_tokens, create_session, get_session, delete_session
 from app.dependencies.auth_dep import get_current_user, get_current_admin_user, check_refresh_token
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.exceptions import UserAlreadyExistsException, IncorrectTelegramIdOrPasswordException
-from app.auth.dao import UsersDAO
-from app.auth.schemas import SUserRegister, SUserAuth, TelegramModel, SUserAddDB, SUserInfo
+from app.auth.dao import UsersDAO, SessionDAO
+from app.auth.schemas import SUserRegister, SUserAuth, TelegramModel, SUserAddDB, SUserInfo, TelegramAuthData, UserTelegramID
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter()
 
@@ -78,3 +83,47 @@ async def process_refresh_token(
 ):
     set_tokens(response, user.id)
     return {"message": "Токены успешно обновлены"}
+
+
+@router.post("/telegram")
+async def telegram_auth(user_data: TelegramAuthData):
+    async for session in get_session_with_commit():
+        users_dao = UsersDAO(session)
+        session_dao = SessionDAO(session)
+
+        # Проверяем, существует ли пользователь
+        existing_user = await users_dao.find_one_or_none(
+            filters=UserTelegramID(telegram_id=user_data.id)
+        )
+
+        if not existing_user:
+            # Создаём нового пользователя
+            new_user = await users_dao.add(
+                values=SUserAddDB(
+                    full_name=user_data.first_name,
+                    telegram_id=user_data.id,
+                    telegram_username=user_data.username
+                )
+            )
+            user = new_user
+        else:
+            user = existing_user
+
+        # Создаём сессию с помощью DAO
+        session_token = await session_dao.create_session(user.id)
+
+        return {
+            "ok": True,
+            "message": "Telegram authentication successful",
+            "session": {
+                "token": session_token,
+                "user_id": user.id
+            },
+            "user": {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+                "telegram_username": user.telegram_username,
+                "is_active": user.role_id is not None
+            }
+        }

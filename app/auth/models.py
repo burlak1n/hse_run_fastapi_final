@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
@@ -29,7 +29,7 @@ class User(Base):
     role: Mapped["Role"] = relationship("Role", back_populates="users", lazy="joined")
 
     # Команды, где пользователь участник или капитан
-    commands_association: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="user")
+    commands: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="user")
 
     def __repr__(self):
         return f"Ваш профиль:\nФИО: {self.full_name}\ntelegram_id: {self.telegram_id}\ntelegram_username: {self.telegram_username}"
@@ -39,7 +39,7 @@ class Command(Base):
     name: Mapped[str]
 
     # Участники команды (включая капитана)
-    users_association: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="command")
+    users: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="command")
 
     # Связь с мероприятием
     event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False)
@@ -47,14 +47,14 @@ class Command(Base):
 
     def __repr__(self):
         participants = []
-        for idx, user_assoc in enumerate(self.users_association, start=1):
+        for idx, user_assoc in enumerate(self.users, start=1):
             role = user_assoc.role.name if user_assoc.role else ""
             participant_info = f"{idx}. {user_assoc.user.full_name}"
             if role:
                 participant_info += f" | {role}"
             participants.append(participant_info)
         participants_str = "\n".join(participants)
-        return f"Команда: {self.name} | {len(self.users_association)}/6\n{participants_str}"
+        return f"Команда: {self.name} | {len(self.users)}/6\n{participants_str}"
     # __table_args__ = (
     #     CheckConstraint('count_users >= 1 AND count_users <= 100', name='check_count_users_range'),
     # )
@@ -83,8 +83,8 @@ class CommandsUser(BaseNoID):
     role_id: Mapped[int] = mapped_column(ForeignKey('roleusercommands.id'))  # Ссылка на роль
 
     # Опционально: связи для удобства доступа
-    command: Mapped["Command"] = relationship("Command", back_populates="users_association")
-    user: Mapped["User"] = relationship("User", back_populates="commands_association")
+    command: Mapped["Command"] = relationship("Command", back_populates="users")
+    user: Mapped["User"] = relationship("User", back_populates="commands")
     role: Mapped["RoleUserCommand"] = relationship("RoleUserCommand")
 
 
@@ -92,9 +92,8 @@ class Session(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     token: Mapped[str] = mapped_column(nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
-    user_agent: Mapped[str] = mapped_column(nullable=True)  # Весь User-Agent
+    # user_agent: Mapped[str] = mapped_column(nullable=True)  # Весь User-Agent
     is_active: Mapped[bool] = mapped_column(default=False)
-    last_activity: Mapped[datetime] = mapped_column(nullable=True)
 
     def is_expired(self) -> bool:
         """Проверка, истёк ли срок действия сессии."""
@@ -108,6 +107,6 @@ class Session(Base):
         """Проверка, действительна ли сессия."""
         return not self.is_expired() and self.is_active
 
-    def update_last_activity(self):
-        """Обновляет время последней активности до текущего времени."""
-        self.last_activity = datetime.now(timezone.utc)
+    # def update_last_activity(self):
+    #     """Обновляет время последней активности до текущего времени."""
+    #     self.last_activity = datetime.now(timezone.utc)

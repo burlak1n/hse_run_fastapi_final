@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
+from app.utils.template import render_template
+from app.config import event_config
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
@@ -63,16 +65,24 @@ def register_routers(app: FastAPI) -> None:
     root_router = APIRouter()
 
     @root_router.get("/", tags=["root"])
-    def home_page():
-        return {
-            "message": "Добро пожаловать! Проект создан для сообщества 'Легкий путь в Python'.",
-            "community": "https://t.me/PythonPathMaster",
-            "author": "Яковенко Алексей"
-        }
+    async def home_page(request: Request):
+        return render_template(request, "index.html", {"event_config": event_config})
+
+    @root_router.get("/registration", tags=["registration"])
+    async def registration_page(request: Request):
+        return render_template(request, "registration.html", {"event_config": event_config})
+
+    @root_router.get("/quest", tags=["quest"])
+    async def quest_page(request: Request):
+        return render_template(request, "quest.html")
+
+    @root_router.get("/profile", tags=["profile"])
+    async def profile_page(request: Request):
+        return render_template(request, "profile.html")
 
     # Подключение роутеров
     app.include_router(root_router, tags=["root"])
-    app.include_router(router_auth, prefix='/auth', tags=['Auth'])
+    app.include_router(router_auth, prefix='/api/auth', tags=['Auth'])
     init_admin(app, base_url='/cms')
 
 # Создание экземпляра приложения

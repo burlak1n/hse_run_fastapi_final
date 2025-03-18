@@ -17,3 +17,12 @@ database_url = settings.DB_URL
 
 EVENT_NAME = "HSERUN29"
 EVENT_ID = 1
+
+class EventConfig:
+    address = "Хитровский перeулок, 2/8, стр.5"
+    date = "27 апреля 2025"
+    number = "29"
+    start_time = "12:00"
+    end_time = "16:00"
+
+event_config = EventConfig()

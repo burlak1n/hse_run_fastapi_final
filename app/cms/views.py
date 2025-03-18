@@ -1,5 +1,5 @@
 from sqladmin import ModelView
-from app.auth.models import User, Role, Command, CommandUser
+from app.auth.models import User, Role, Command
 
 class UserAdmin(ModelView, model=User):
     column_list = [
@@ -18,9 +18,6 @@ class RoleAdmin(ModelView, model=Role):
     form_columns = [Role.name]
 
 class CommandAdmin(ModelView, model=Command):
-    column_list = [Command.id, Command.name, Command.captain_id, Command.count_users]
-    form_columns = [Command.name, Command.captain, Command.count_users]
+    column_list = [Command.id, Command.name, Command.users]
+    form_columns = [Command.name, Command.users]
 
-class CommandUserAdmin(ModelView, model=CommandUser):
-    column_list = [CommandUser.id, CommandUser.command_id, CommandUser.user_id]
-    form_columns = [CommandUser.command_id, CommandUser.user_id]

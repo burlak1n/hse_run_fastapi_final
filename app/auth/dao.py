@@ -1,10 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from sqlalchemy import select, update
+from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
+from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionMakeUpdate
 from app.dao.base import BaseDAO
 from app.auth.models import Event, Session, User, CommandsUser, Command
 from app.logger import logger
+import uuid
+import secrets
 
 class UsersDAO(BaseDAO):
     model = User
@@ -85,9 +88,7 @@ class EventsDAO(BaseDAO):
 class SessionDAO(BaseDAO):
     model = Session
 
-
-
-    async def create_session(self, user_id: int) -> Optional[str]:
+    async def create_session(self, user_id: int) -> str:
         """
         Создает новую сессию для пользователя.
         Если у пользователя уже есть активная сессия, она будет деактивирована.
@@ -99,21 +100,36 @@ class SessionDAO(BaseDAO):
             await self.deactivate_all_sessions(user_id)
             
             # Создаем новую сессию
-            session_token = str(uuid.uuid4())
-            expires_at = datetime.now() + timedelta(days=7)  # Сессия на 7 дней
-            
-            new_session = Session(
+            session_token = secrets.token_urlsafe(32)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    
+            session_data = SessionCreate(
                 user_id=user_id,
                 token=session_token,
                 expires_at=expires_at,
                 is_active=True
             )
-            
-            await self.add(new_session)
+            new_session = await self.add(values=session_data)
+
             logger.info(f"Новая сессия успешно создана для пользователя {user_id}")
             return session_token
         except Exception as e:
             logger.error(f"Ошибка при создании сессии: {e}")
+            raise
+
+    async def deactivate_all_sessions(self, user_id: int):
+        """
+        Деактивирует все активные сессии пользователя.
+        """
+        logger.info(f"Деактивация всех сессий пользователя {user_id}")
+        try:
+            await self.update(
+                filters=SessionFindUpdate(user_id=user_id, is_active=True),
+                values=SessionMakeUpdate(is_active=False, expires_at=datetime.now(timezone.utc))
+            )
+            logger.info(f"Все сессии пользователя {user_id} успешно деактивированы")
+        except Exception as e:
+            logger.error(f"Ошибка при деактивации сессий: {e}")
             raise
 
     async def deactivate_session(self, session_token: str):
@@ -122,14 +138,27 @@ class SessionDAO(BaseDAO):
         """
         logger.info(f"Деактивация сессии с токеном {session_token}")
         try:
-            query = (
-                update(Session)
-                .filter_by(token=session_token)
-                .values(is_active=False, expires_at=datetime.now())
+            await self.update(
+                filters={"token": session_token},
+                values={"is_active": False, "expires_at": datetime.now(timezone.utc)}
             )
-            await self._session.execute(query)
             logger.info(f"Сессия с токеном {session_token} успешно деактивирована")
         except Exception as e:
             logger.error(f"Ошибка при деактивации сессии: {e}")
+            raise
+
+    async def get_session(self, session_token: str):
+        """
+        Получает сессию по токену.
+        """
+        logger.info(f"Получение сессии по токену {session_token}")
+        try:
+            session = await self.find_one_or_none(filters={"token": session_token})
+            if not session or not session.is_valid():
+                raise ValueError("Invalid or expired session token")
+            logger.info(f"Сессия с токеном {session_token} успешно получена")
+            return session
+        except Exception as e:
+            logger.error(f"Ошибка при получении сессии: {e}")
             raise
 

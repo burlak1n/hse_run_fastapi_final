@@ -1,16 +1,18 @@
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field
+from typing import Optional
 
 
-class UserID(BaseModel):
+class UserTelegramID(BaseModel):
     telegram_id: int = Field(description="Идентификатор пользователя в Telegram")
 
-class TelegramModel(UserID):
+class TelegramModel(UserTelegramID):
     telegram_username: str = Field(description="Имя пользователя в Telegram")
 
 class UserFullname(BaseModel):
     full_name: str = Field(description="Имя и фамилия пользователя")
 
-class UserBase(TelegramModel, UserFullname, UserID):
+class UserBase(TelegramModel, UserFullname, UserTelegramID):
     pass
 
 class SUserRegister(UserBase):
@@ -52,3 +54,34 @@ class EventID(BaseModel):
 class CommandID(BaseModel):
     id: int
 
+class TelegramUser(BaseModel):
+    id: int
+    first_name: str
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+    auth_date: int
+    hash: str
+
+class TelegramAuthData(BaseModel):
+    id: int
+    first_name: str
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+    auth_date: int
+    hash: str
+
+class SessionFindUpdate(BaseModel):
+    user_id: int
+    is_active: bool
+
+class SessionMakeUpdate(BaseModel):
+    is_active: bool
+    expires_at: datetime
+
+class SessionCreate(BaseModel):
+    user_id: int
+    token: str
+    expires_at: datetime
+    is_active: bool
