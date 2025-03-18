@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
@@ -23,7 +24,8 @@ class User(Base):
     telegram_id: Mapped[int_uniq] = mapped_column(index=True)
     telegram_username: Mapped[str]
 
-    role_id: Mapped[int] = mapped_column(ForeignKey('roles.id'), default=1, server_default=text("1"))
+    # Если нет ролей, то пользователь неактивный
+    role_id: Mapped[int] = mapped_column(ForeignKey('roles.id'), default=None)
     role: Mapped["Role"] = relationship("Role", back_populates="users", lazy="joined")
 
     # Команды, где пользователь участник или капитан
@@ -86,26 +88,26 @@ class CommandsUser(BaseNoID):
     role: Mapped["RoleUserCommand"] = relationship("RoleUserCommand")
 
 
-# class Session(Base):
-#     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
-#     token: Mapped[str] = mapped_column(nullable=False, unique=True)
-#     expires_at: Mapped[datetime] = mapped_column(nullable=False)
-#     user_agent: Mapped[str] = mapped_column(nullable=True)  # Весь User-Agent
-#     is_revoked: Mapped[bool] = mapped_column(default=False)
-#     last_activity: Mapped[datetime] = mapped_column(nullable=True)
+class Session(Base):
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    token: Mapped[str] = mapped_column(nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    user_agent: Mapped[str] = mapped_column(nullable=True)  # Весь User-Agent
+    is_active: Mapped[bool] = mapped_column(default=False)
+    last_activity: Mapped[datetime] = mapped_column(nullable=True)
 
-#     def is_expired(self) -> bool:
-#         """Проверка, истёк ли срок действия сессии."""
-#         return datetime.now(timezone.utc) > self.expires_at
+    def is_expired(self) -> bool:
+        """Проверка, истёк ли срок действия сессии."""
+        return datetime.now(timezone.utc) > self.expires_at
 
-#     def revoke(self):
-#         """Отзыв сессии."""
-#         self.is_revoked = True
+    def revoke(self):
+        """Отзыв сессии."""
+        self.is_active = False
 
-#     def is_valid(self) -> bool:
-#         """Проверка, действительна ли сессия."""
-#         return not self.is_expired() and not self.is_revoked
+    def is_valid(self) -> bool:
+        """Проверка, действительна ли сессия."""
+        return not self.is_expired() and self.is_active
 
-#     def update_last_activity(self):
-#         """Обновляет время последней активности до текущего времени."""
-#         self.last_activity = datetime.now(timezone.utc)
+    def update_last_activity(self):
+        """Обновляет время последней активности до текущего времени."""
+        self.last_activity = datetime.now(timezone.utc)

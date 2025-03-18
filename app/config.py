@@ -16,3 +16,4 @@ settings = Settings()
 database_url = settings.DB_URL
 
 EVENT_NAME = "HSERUN29"
+EVENT_ID = 1

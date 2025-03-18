@@ -40,9 +40,15 @@ class SUserInfo(UserBase):
     def role_id(self) -> int:
         return self.role.id
 
-class CommandBase(BaseModel):
+class CommandName(BaseModel):
     name: str
+
+class CommandBase(CommandName):
     event_id: int
 
 class EventID(BaseModel):
     name: str
+
+class CommandID(BaseModel):
+    id: int
+

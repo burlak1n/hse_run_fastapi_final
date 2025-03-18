@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 from app.dao.base import BaseDAO
-from app.auth.models import Event, User, CommandsUser, Command
+from app.auth.models import Event, Session, User, CommandsUser, Command
 from app.logger import logger
 
 class UsersDAO(BaseDAO):
@@ -80,3 +81,55 @@ class CommandsDAO(BaseDAO):
 
 class EventsDAO(BaseDAO):
     model = Event
+
+class SessionDAO(BaseDAO):
+    model = Session
+
+
+
+    async def create_session(self, user_id: int) -> Optional[str]:
+        """
+        Создает новую сессию для пользователя.
+        Если у пользователя уже есть активная сессия, она будет деактивирована.
+        Возвращает токен созданной сессии.
+        """
+        logger.info(f"Создание новой сессии для пользователя {user_id}")
+        try:
+            # Деактивируем все активные сессии пользователя
+            await self.deactivate_all_sessions(user_id)
+            
+            # Создаем новую сессию
+            session_token = str(uuid.uuid4())
+            expires_at = datetime.now() + timedelta(days=7)  # Сессия на 7 дней
+            
+            new_session = Session(
+                user_id=user_id,
+                token=session_token,
+                expires_at=expires_at,
+                is_active=True
+            )
+            
+            await self.add(new_session)
+            logger.info(f"Новая сессия успешно создана для пользователя {user_id}")
+            return session_token
+        except Exception as e:
+            logger.error(f"Ошибка при создании сессии: {e}")
+            raise
+
+    async def deactivate_session(self, session_token: str):
+        """
+        Деактивирует сессию по её токену.
+        """
+        logger.info(f"Деактивация сессии с токеном {session_token}")
+        try:
+            query = (
+                update(Session)
+                .filter_by(token=session_token)
+                .values(is_active=False, expires_at=datetime.now())
+            )
+            await self._session.execute(query)
+            logger.info(f"Сессия с токеном {session_token} успешно деактивирована")
+        except Exception as e:
+            logger.error(f"Ошибка при деактивации сессии: {e}")
+            raise
+
