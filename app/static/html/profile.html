@@ -11,22 +11,31 @@
     <div class="container">
         <h1>HSE RUN</h1>
         <h2>Профиль</h2>
-        <div id="user-info">
+        <div id="user-info" style="display: none;">
             <p>ФИО: <span id="full_name"></span></p>
             <button id="logout-btn">Выйти</button>
         </div>
+        <div id="error-message" style="color: red; margin-top: 20px; display: none;"></div>
     </div>
     <script>
         async function fetchUserData() {
             try {
                 const response = await fetch('/api/auth/me/');
                 if (!response.ok) {
-                    throw new Error('Ошибка при получении данных');
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Ошибка при получении данных');
                 }
                 const userData = await response.json();
                 document.getElementById('full_name').textContent = userData.full_name;
+                document.getElementById('user-info').style.display = 'block';
             } catch (error) {
-                console.error('Ошибка:', error);
+                const errorMessage = document.getElementById('error-message');
+                errorMessage.textContent = error.message + ". Перенаправление на вход";
+                errorMessage.style.display = 'block';
+                
+                setTimeout(() => {
+                    window.location.href = '/registration';
+                }, 3000);
             }
         }
 
