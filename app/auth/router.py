@@ -7,7 +7,7 @@ from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
 from app.auth.dao import UsersDAO, SessionDAO
-from app.auth.schemas import SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB
+from app.auth.schemas import CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB
 from fastapi.responses import JSONResponse
 
 router = APIRouter()
@@ -74,9 +74,6 @@ async def telegram_auth(
     set_tokens(response, session_token)
     return response
 
-
-class CompleteRegistrationRequest(BaseModel):
-    full_name: str
 
 @router.post("/complete-registration")
 async def complete_registration(

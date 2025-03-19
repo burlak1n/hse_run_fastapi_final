@@ -100,3 +100,7 @@ class SessionCreate(BaseModel):
     token: str
     expires_at: datetime
     is_active: bool
+
+class CompleteRegistrationRequest(BaseModel):
+    full_name: str
+    
