@@ -11,4 +11,4 @@ def cleanup_expired_sessions():
         db.query(Session).filter(Session.expires_at < now).delete()
         db.commit()
     finally:
-        db.close() 
+        db.close()

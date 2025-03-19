@@ -8,7 +8,7 @@ from loguru import logger
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
 from app.utils.template import render_template
-from app.config import event_config
+from app.config import event_config, DEBUG
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
@@ -64,22 +64,26 @@ def register_routers(app: FastAPI) -> None:
     # Корневой роутер
     root_router = APIRouter()
 
-    @root_router.get("/", tags=["root"])
-    async def home_page(request: Request):
-        return render_template(request, "index.html", {"event_config": event_config})
+    if DEBUG:
+        @root_router.get("/", tags=["root"])
+        async def home_page(request: Request):
+            return render_template(request, "index.html", {"event_config": event_config})
 
-    @root_router.get("/registration", tags=["registration"])
-    async def registration_page(request: Request):
-        return render_template(request, "registration.html", {"event_config": event_config})
+        @root_router.get("/registration", tags=["registration"])
+        async def registration_page(request: Request):
+            return render_template(request, "registration.html", {"event_config": event_config})
 
-    @root_router.get("/quest", tags=["quest"])
-    async def quest_page(request: Request):
-        return render_template(request, "quest.html")
+        @root_router.get("/quest", tags=["quest"])
+        async def quest_page(request: Request):
+            return render_template(request, "quest.html")
 
-    @root_router.get("/profile", tags=["profile"])
-    async def profile_page(request: Request):
-        return render_template(request, "profile.html")
-
+        @root_router.get("/profile", tags=["profile"])
+        async def profile_page(request: Request):
+            return render_template(request, "profile.html")
+    else:
+        @root_router.get("/", tags=["root"])
+        async def home_page(request: Request):
+            return {"ok": True}
     # Подключение роутеров
     app.include_router(root_router, tags=["root"])
     app.include_router(router_auth, prefix='/api/auth', tags=['Auth'])
