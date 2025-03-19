@@ -3,6 +3,7 @@ from typing import Optional
 from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
 from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate
+from app.auth.utils import create_session
 from app.dao.base import BaseDAO
 from app.auth.models import Event, Session, User, CommandsUser, Command
 from app.logger import logger
@@ -101,19 +102,20 @@ class SessionDAO(BaseDAO):
             await self.deactivate_all_sessions(user_id)
             
             # Создаем новую сессию
-            session_token = secrets.token_urlsafe(32)
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=SESSION_EXPIRE_SECONDS)
+            session = await create_session(user_id)
     
             session_data = SessionCreate(
                 user_id=user_id,
-                token=session_token,
-                expires_at=expires_at,
+                token=session.token,
+                expires_at=session.expires_at,
                 is_active=True
             )
-            new_session = await self.add(values=session_data)
+
+            await self.add(values=session_data)
 
             logger.info(f"Новая сессия успешно создана для пользователя {user_id}")
-            return session_token
+            return session.token
+            
         except Exception as e:
             logger.error(f"Ошибка при создании сессии: {e}")
             raise

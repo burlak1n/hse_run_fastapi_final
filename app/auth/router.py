@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import secrets
 
 from app.auth.models import User, Session
-from app.auth.utils import set_tokens, create_session, get_session, delete_session
+from app.auth.utils import set_tokens, create_session
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.exceptions import UserAlreadyExistsException, IncorrectTelegramIdOrPasswordException
