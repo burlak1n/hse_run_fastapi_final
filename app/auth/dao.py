@@ -1,15 +1,12 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import select, update, delete
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate
 from app.auth.utils import create_session
 from app.dao.base import BaseDAO
 from app.auth.models import Event, Session, User, CommandsUser, Command
 from app.logger import logger
-import uuid
-import secrets
-from app.config import SESSION_EXPIRE_SECONDS
 
 class UsersDAO(BaseDAO):
     model = User
@@ -115,7 +112,7 @@ class SessionDAO(BaseDAO):
 
             logger.info(f"Новая сессия успешно создана для пользователя {user_id}")
             return session.token
-            
+
         except Exception as e:
             logger.error(f"Ошибка при создании сессии: {e}")
             raise
@@ -164,4 +161,3 @@ class SessionDAO(BaseDAO):
         except Exception as e:
             logger.error(f"Ошибка при получении сессии: {e}")
             raise
-

@@ -19,6 +19,18 @@
         </script>
         <div id="error-message" hidden></div>
         <script>
+            // Проверка сессии при загрузке страницы
+            async function checkSession() {
+                try {
+                    const res = await fetch('/api/auth/me/');
+                    if (res.ok) {
+                        window.location.href = '/profile';
+                    }
+                } catch (e) {
+                    // Если ошибка, просто продолжаем показ страницы регистрации
+                }
+            }
+
             const showError = msg => {
                 const el = document.getElementById('error-message');
                 el.textContent = msg;
@@ -67,6 +79,9 @@
                     showError(error.message);
                 }
             };
+
+            // Выполняем проверку сессии при загрузке страницы
+            checkSession();
         </script>
     </div>
 </body>
