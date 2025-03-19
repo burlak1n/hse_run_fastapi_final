@@ -23,4 +23,4 @@ database_url = settings.DB_URL
 
 SESSION_EXPIRE_SECONDS = timedelta(days=7).total_seconds()
 
-DEBUG = True
+DEBUG = False

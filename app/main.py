@@ -83,17 +83,18 @@ def register_routers(app: FastAPI) -> None:
         async def profile_page(request: Request):
             return render_template(request, "profile.html")
     else:
+        pass
         # @root_router.get("/", tags=["root"])
         # async def home_page(request: Request):
         #     return {"ok": True}
         # Serve Vue app
         # Mount Vue frontend
-        frontend_path = os.path.join(os.path.dirname(__file__), "../frontend/public")
+        # frontend_path = os.path.join(os.path.dirname(__file__), "../frontend/public")
         # app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
-        app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "../src/assets")), name="assets")
-        @root_router.get("/{full_path:path}")
-        async def serve_vue_app(full_path: str):
-            return FileResponse(os.path.join(frontend_path, "index.html"))
+        # app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "../src/assets")), name="assets")
+        # @root_router.get("/{full_path:path}")
+        # async def serve_vue_app(full_path: str):
+        #     return FileResponse(os.path.join(frontend_path, "index.html"))
     # Подключение роутеров
     app.include_router(root_router, tags=["root"])
     app.include_router(router_auth, prefix='/api/auth', tags=['Auth'])
