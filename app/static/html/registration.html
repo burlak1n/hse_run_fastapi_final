@@ -5,18 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HSE RUN</title>
     <link rel="stylesheet" href="/static/css/styles.css">
-    <style>
-        .hidden { display: none; }
-        .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; margin-bottom: 0.5rem; }
-        .form-group input { width: 100%; padding: 0.5rem; font-size: 1rem; }
-        .btn { padding: 0.5rem 1rem; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        .btn:hover { background-color: #0056b3; }
-    </style>
 </head>
 <body>
-    <a href="/">Назад</a>
     <h1>HSE RUN</h1>
+    <a href="/">Назад</a>
     <div class="container">
         <h2>Вход</h2>
         <script async src="https://telegram.org/js/telegram-widget.js?22" 
@@ -25,79 +17,54 @@
             data-onauth="onTelegramAuth(user)" 
             data-request-access="write">
         </script>
-        <div id="error-message" class="hidden"></div>
-        <div id="loading" class="hidden">Загрузка...</div>
+        <div id="error-message" hidden></div>
         <script>
-            const API_URL = '/api/auth/telegram';
-
-            const toggleLoading = (show) => {
-                const loadingEl = document.getElementById('loading');
-                if (loadingEl) {
-                    loadingEl.classList.toggle('hidden', !show);
-                }
-            };
-            const showError = (msg) => {
+            const showError = msg => {
                 const el = document.getElementById('error-message');
                 el.textContent = msg;
-                el.classList.remove('hidden');
+                el.hidden = false;
             };
 
             const showRegistrationForm = () => {
-                const container = document.querySelector('.container');
-                container.innerHTML = `
+                document.querySelector('.container').innerHTML = `
                     <h2>Регистрация</h2>
                     <form id="registration-form">
-                        <div class="form-group">
+                        <div>
                             <label for="full-name">ФИО:</label>
                             <input type="text" id="full-name" required>
                         </div>
-                        <button type="submit" class="btn">Зарегистрироваться</button>
+                        <button type="submit">Зарегистрироваться</button>
                     </form>
-                    <div id="form-error" class="hidden"></div>
-                    <div id="loading" class="hidden">Загрузка...</div>
+                    <div id="form-error" hidden></div>
                 `;
-                document.getElementById('registration-form').addEventListener('submit', async (e) => {
+                document.getElementById('registration-form').onsubmit = async e => {
                     e.preventDefault();
-                    await completeRegistration(document.getElementById('full-name').value);
-                });
+                    try {
+                        const res = await fetch('/api/auth/complete-registration', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ full_name: document.getElementById('full-name').value })
+                        });
+                        if (!res.ok) throw new Error('Ошибка');
+                        window.location.href = '/profile';
+                    } catch (error) {
+                        showError(error.message);
+                    }
+                };
             };
 
-            const handleResponse = async (response, successCallback) => {
-                if (!response.ok) throw new Error('Ошибка сети');
-                const data = await response.json();
-                if (!data.ok) throw new Error(data.message || 'Неизвестная ошибка');
-                successCallback(data);
-            };
-
-            const completeRegistration = async (fullName) => {
-                toggleLoading(true);
+            const onTelegramAuth = async user => {
                 try {
-                    await handleResponse(await fetch('/api/auth/complete-registration', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ full_name: fullName })
-                    }), () => window.location.href = '/profile');
-                } catch (error) {
-                    showError(error.message);
-                } finally {
-                    toggleLoading(false);
-                }
-            };
-
-            const onTelegramAuth = async (user) => {
-                toggleLoading(true);
-                try {
-                    await handleResponse(await fetch(API_URL, {
+                    const res = await fetch('/api/auth/telegram', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(user)
-                    }), (data) => {
-                        data.user.is_active ? window.location.href = '/profile' : showRegistrationForm();
                     });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) throw new Error(data.message || 'Ошибка');
+                    data.user.is_active ? window.location.href = '/profile' : showRegistrationForm();
                 } catch (error) {
                     showError(error.message);
-                } finally {
-                    toggleLoading(false);
                 }
             };
         </script>
