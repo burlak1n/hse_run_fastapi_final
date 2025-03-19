@@ -5,90 +5,102 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HSE RUN</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .hidden { display: none; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; }
+        .form-group input { width: 100%; padding: 0.5rem; font-size: 1rem; }
+        .btn { padding: 0.5rem 1rem; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background-color: #0056b3; }
+    </style>
 </head>
 <body>
     <a href="/">Назад</a>
+    <h1>HSE RUN</h1>
     <div class="container">
-        <h1>HSE RUN</h1>
-        <h2>Регистрация</h2>
-        <script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="test_burlak1n_bot" data-size="large" data-onauth="onTelegramAuth(user)" data-request-access="write"></script>
+        <h2>Вход</h2>
+        <script async src="https://telegram.org/js/telegram-widget.js?22" 
+            data-telegram-login="test_burlak1n_bot" 
+            data-size="large" 
+            data-onauth="onTelegramAuth(user)" 
+            data-request-access="write">
+        </script>
         <div id="error-message" class="hidden"></div>
         <div id="loading" class="hidden">Загрузка...</div>
-        <script type="text/javascript">
-        const API_URL = '/api/auth/telegram';
+        <script>
+            const API_URL = '/api/auth/telegram';
 
-        function showLoading(show) {
-            const loadingElement = document.getElementById('loading');
-            if (show) {
-                loadingElement.classList.remove('hidden');
-            } else {
-                loadingElement.classList.add('hidden');
-            }
-        }
-
-        function onTelegramAuth(user) {
-            showLoading(true);
-            
-            fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(user)
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Ошибка сети');
+            const toggleLoading = (show) => {
+                const loadingEl = document.getElementById('loading');
+                if (loadingEl) {
+                    loadingEl.classList.toggle('hidden', !show);
                 }
-                return response.json();
-            })
-            .then(data => {
-                if (data.ok) {
-                    // Создаем элемент для отображения данных
-                    const resultContainer = document.createElement('div');
-                    resultContainer.id = 'result-container';
-                    resultContainer.style.marginTop = '20px';
-                    resultContainer.style.padding = '15px';
-                    resultContainer.style.backgroundColor = '#f5f5f5';
-                    resultContainer.style.borderRadius = '5px';
-                    
-                    // Форматируем данные для отображения
-                    resultContainer.innerHTML = `
-                        <h3>Данные пользователя:</h3>
-                        <pre>${JSON.stringify(data, null, 2)}</pre>
-                        <p>Перенаправление на профиль через 5 секунд...</p>
-                    `;
-                    
-                    // Добавляем элемент на страницу
-                    document.querySelector('.container').appendChild(resultContainer);
-                    
-                    // Перенаправляем через 5 секунд
-                    setTimeout(() => {
-                        window.location.href = '/profile';
-                    }, 5000);
-                } else {
-                    showError('Ошибка авторизации: ' + (data.message || 'Неизвестная ошибка'));
-                }
-            })
-            .catch(error => {
-                console.error('Ошибка:', error);
-                showError('Произошла ошибка при авторизации');
-            })
-            .finally(() => {
-                showLoading(false);
-            });
-        }
+            };
+            const showError = (msg) => {
+                const el = document.getElementById('error-message');
+                el.textContent = msg;
+                el.classList.remove('hidden');
+            };
 
-        function showError(message) {
-            const errorElement = document.getElementById('error-message');
-            errorElement.textContent = message;
-            errorElement.classList.remove('hidden');
-        }
+            const showRegistrationForm = () => {
+                const container = document.querySelector('.container');
+                container.innerHTML = `
+                    <h2>Регистрация</h2>
+                    <form id="registration-form">
+                        <div class="form-group">
+                            <label for="full-name">ФИО:</label>
+                            <input type="text" id="full-name" required>
+                        </div>
+                        <button type="submit" class="btn">Зарегистрироваться</button>
+                    </form>
+                    <div id="form-error" class="hidden"></div>
+                    <div id="loading" class="hidden">Загрузка...</div>
+                `;
+                document.getElementById('registration-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    await completeRegistration(document.getElementById('full-name').value);
+                });
+            };
+
+            const handleResponse = async (response, successCallback) => {
+                if (!response.ok) throw new Error('Ошибка сети');
+                const data = await response.json();
+                if (!data.ok) throw new Error(data.message || 'Неизвестная ошибка');
+                successCallback(data);
+            };
+
+            const completeRegistration = async (fullName) => {
+                toggleLoading(true);
+                try {
+                    await handleResponse(await fetch('/api/auth/complete-registration', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ full_name: fullName })
+                    }), () => window.location.href = '/profile');
+                } catch (error) {
+                    showError(error.message);
+                } finally {
+                    toggleLoading(false);
+                }
+            };
+
+            const onTelegramAuth = async (user) => {
+                toggleLoading(true);
+                try {
+                    await handleResponse(await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(user)
+                    }), (data) => {
+                        data.user.is_active ? window.location.href = '/profile' : showRegistrationForm();
+                    });
+                } catch (error) {
+                    showError(error.message);
+                } finally {
+                    toggleLoading(false);
+                }
+            };
         </script>
     </div>
-    <style>
-    .hidden { display: none; }
-    #loading { /* стили для индикатора загрузки */ }
-    </style>
 </body>
 </html>

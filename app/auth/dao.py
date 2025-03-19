@@ -2,12 +2,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
-from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionMakeUpdate
+from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate
 from app.dao.base import BaseDAO
 from app.auth.models import Event, Session, User, CommandsUser, Command
 from app.logger import logger
 import uuid
 import secrets
+from app.config import SESSION_EXPIRE_SECONDS
 
 class UsersDAO(BaseDAO):
     model = User
@@ -101,7 +102,7 @@ class SessionDAO(BaseDAO):
             
             # Создаем новую сессию
             session_token = secrets.token_urlsafe(32)
-            expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=SESSION_EXPIRE_SECONDS)
     
             session_data = SessionCreate(
                 user_id=user_id,
@@ -153,7 +154,7 @@ class SessionDAO(BaseDAO):
         """
         logger.info(f"Получение сессии по токену {session_token}")
         try:
-            session = await self.find_one_or_none(filters={"token": session_token})
+            session = await self.find_one_or_none(filters=SessionGet(token=session_token))
             if not session or not session.is_valid():
                 raise ValueError("Invalid or expired session token")
             logger.info(f"Сессия с токеном {session_token} успешно получена")

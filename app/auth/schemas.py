@@ -10,7 +10,13 @@ class TelegramModel(UserTelegramID):
     telegram_username: str = Field(description="Имя пользователя в Telegram")
 
 class UserFullname(BaseModel):
-    full_name: str = Field(description="Имя и фамилия пользователя")
+    full_name: str = Field(description="ФИО пользователя")
+
+class UserFindCompleteRegistration(BaseModel):
+    id: int = Field(description="ID пользователя в БД")
+
+class UserMakeCompleteRegistration(UserFullname):
+    role_id: int = Field(description="ID роли пользователя")
 
 class UserBase(TelegramModel, UserFullname, UserTelegramID):
     pass
@@ -32,15 +38,21 @@ class RoleModel(BaseModel):
 
 class SUserInfo(UserBase):
     id: int = Field(description="Идентификатор пользователя")
-    role: RoleModel = Field(exclude=True)
+    role_id: Optional[int] = Field(
+        default=None,
+        description="Идентификатор роли пользователя. Если NULL - пользователь неактивен"
+    )
+    role: Optional[RoleModel] = Field(
+        default=None,
+        exclude=True,
+        description="Роль пользователя"
+    )
 
     @computed_field
-    def role_name(self) -> str:
-        return self.role.name
+    def role_name(self) -> Optional[str]:
+        return self.role.name if self.role else None
 
-    @computed_field
-    def role_id(self) -> int:
-        return self.role.id
+    model_config = ConfigDict(from_attributes=True)
 
 class CommandName(BaseModel):
     name: str
@@ -71,6 +83,9 @@ class TelegramAuthData(BaseModel):
     photo_url: Optional[str] = None
     auth_date: int
     hash: str
+
+class SessionGet(BaseModel):
+    token: str
 
 class SessionFindUpdate(BaseModel):
     user_id: int

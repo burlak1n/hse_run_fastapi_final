@@ -8,6 +8,7 @@ import secrets
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from cryptography.fernet import Fernet
+from app.config import SESSION_EXPIRE_SECONDS
 
 
 def create_tokens(data: dict) -> dict:
@@ -38,15 +39,24 @@ def create_tokens(data: dict) -> dict:
 
 
 
-def set_tokens(response: Response, db: AsyncSession, user_id: int):
-    """Установка токена сессии в куки"""
-    token = create_session(db, user_id)
+def set_tokens(response: Response, session_token):
+    """
+    Устанавливает токен сессии в cookies HTTP-ответа.
+
+    Args:
+        response (Response): Объект HTTP-ответа FastAPI.
+        db (AsyncSession): Асинхронная сессия для работы с базой данных.
+    Raises:
+        HTTPException: Если не удалось создать или установить токен.
+    """
     response.set_cookie(
         key="session_token",
-        value=token,
+        value=session_token,
         httponly=True,
-        secure=True,
-        samesite="lax"
+        secure=False,
+        # secure=True,
+        samesite="lax",
+        max_age=int(SESSION_EXPIRE_SECONDS),  # Срок действия 7 дней
     )
 
 

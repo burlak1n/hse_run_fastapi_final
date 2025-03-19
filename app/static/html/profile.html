@@ -11,6 +11,41 @@
     <div class="container">
         <h1>HSE RUN</h1>
         <h2>Профиль</h2>
+        <div id="user-info">
+            <p>ФИО: <span id="full_name"></span></p>
+            <button id="logout-btn">Выйти</button>
+        </div>
     </div>
+    <script>
+        async function fetchUserData() {
+            try {
+                const response = await fetch('/api/auth/me/');
+                if (!response.ok) {
+                    throw new Error('Ошибка при получении данных');
+                }
+                const userData = await response.json();
+                document.getElementById('full_name').textContent = userData.full_name;
+            } catch (error) {
+                console.error('Ошибка:', error);
+            }
+        }
+
+        async function logout() {
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST'
+                });
+                if (response.ok) {
+                    window.location.href = '/';
+                }
+            } catch (error) {
+                console.error('Ошибка при выходе:', error);
+            }
+        }
+
+        document.getElementById('logout-btn').addEventListener('click', logout);
+        
+        fetchUserData();
+    </script>
 </body>
 </html>

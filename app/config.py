@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from datetime import timedelta
 
 class Settings(BaseSettings):
     BASE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 # Получаем параметры для загрузки переменных среды
 settings = Settings()
 database_url = settings.DB_URL
+SESSION_EXPIRE_SECONDS = timedelta(days=7).total_seconds()
 
 EVENT_NAME = "HSERUN29"
 EVENT_ID = 1

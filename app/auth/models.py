@@ -25,7 +25,12 @@ class User(Base):
     telegram_username: Mapped[str]
 
     # Если нет ролей, то пользователь неактивный
-    role_id: Mapped[int] = mapped_column(ForeignKey('roles.id'), default=None)
+    role_id: Mapped[int | None] = mapped_column(
+        ForeignKey('roles.id', ondelete='SET NULL'),
+        default=None,
+        nullable=True,
+        comment='Идентификатор роли пользователя. Если NULL - пользователь неактивен'
+    )
     role: Mapped["Role"] = relationship("Role", back_populates="users", lazy="joined")
 
     # Команды, где пользователь участник или капитан
@@ -97,7 +102,7 @@ class Session(Base):
 
     def is_expired(self) -> bool:
         """Проверка, истёк ли срок действия сессии."""
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at.replace(tzinfo=timezone.utc)
 
     def revoke(self):
         """Отзыв сессии."""
