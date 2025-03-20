@@ -7,7 +7,7 @@ from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
 from app.auth.dao import CommandsDAO, RolesUsersCommand, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandName, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID
 from fastapi.responses import JSONResponse
 from app.exceptions import InternalServerErrorException
 router = APIRouter()
@@ -16,12 +16,6 @@ router = APIRouter()
 async def logout(response: Response):
     response.delete_cookie("session_token")
     return {'message': 'Пользователь успешно вышел из системы'}
-
-
-@router.get("/me")
-async def get_me(user_data: User = Depends(get_current_user)) -> SUserInfo:
-    return SUserInfo.model_validate(user_data)
-
 
 # @router.post("/refresh")
 # async def process_refresh_token(
@@ -93,6 +87,19 @@ async def complete_registration(
         "message": "Регистрация успешно завершена"
     }
 
+@router.get("/me")
+async def get_me(user_data: User = Depends(get_current_user)) -> SUserInfo:
+    return SUserInfo.model_validate(user_data)
+
+@router.get("command")
+async def command_create(
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(get_current_user)
+) -> CommandInfo:
+    users_dao = UsersDAO(session)
+    command = await users_dao.find_user_command_in_event(user_id=user.id)
+    return CommandInfo.model_validate(command)
+
 @router.post("command/create")
 async def command_create(
     request: CommandName,
@@ -130,7 +137,6 @@ async def command_create(
         status_code=200,
         content={"message": "Команда успешно создана"}
     )
-
 
 # @router.post("command/delete")
 

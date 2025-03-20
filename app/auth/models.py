@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
+from app.quest.models import Block
 
 class Role(Base):
     # "guest" "organizer" "insider" 
@@ -49,6 +50,10 @@ class Command(Base):
     # Связь с мероприятием
     event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False)
     event: Mapped["Event"] = relationship("Event", back_populates="commands")
+
+    # Связь с языком
+    language_id: Mapped[int] = mapped_column(ForeignKey('languages.id'), nullable=False, default=1)
+    language: Mapped["Language"] = relationship("Language", back_populates="commands")
 
     def __repr__(self):
         participants = []
@@ -115,3 +120,16 @@ class Session(Base):
     # def update_last_activity(self):
     #     """Обновляет время последней активности до текущего времени."""
     #     self.last_activity = datetime.now(timezone.utc)
+
+class Language(Base):
+    """Модель для языков программирования"""
+    name: Mapped[str_uniq]  # Уникальное название языка
+    
+    # Связь с блоками
+    blocks: Mapped[list["Block"]] = relationship("Block", back_populates="language", lazy="joined")
+
+    # Связь с командами
+    commands: Mapped[list["Command"]] = relationship("Command", back_populates="language", lazy="joined")
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(id={self.id}, name={self.name})"

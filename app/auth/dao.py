@@ -6,12 +6,12 @@ from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, Sessi
 from app.auth.utils import create_session
 from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME
 from app.dao.base import BaseDAO
-from app.auth.models import Event, Role, RoleUserCommand, Session, User, CommandsUser, Command
+from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command
 from app.logger import logger
 
 class UsersDAO(BaseDAO):
     model = User
-    async def find_user_command_in_event(self, user_id: int, event_id: str) -> Optional[Command]:
+    async def find_user_command_in_event(self, user_id: int, event_id: int = 1) -> Optional[Command]:
         """
         Находит команду, в которой состоит пользователь для указанного мероприятия.
         """
@@ -80,6 +80,10 @@ class CommandsDAO(BaseDAO):
 
 class RolesDAO(BaseDAO):
     model = Role
+
+class LanguagesDAO(BaseDAO):
+    model = Language
+    
 
 class RolesUsersCommand(BaseDAO):
     model = RoleUserCommand

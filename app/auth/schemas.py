@@ -104,3 +104,11 @@ class SessionCreate(BaseModel):
 class CompleteRegistrationRequest(BaseModel):
     full_name: str
     
+
+class CommandInfo(BaseModel):
+    id: int
+    name: str
+    event_id: int
+    language_id: int
+    users: list[dict] = []
+    

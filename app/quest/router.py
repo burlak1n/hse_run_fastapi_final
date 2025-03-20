@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.auth.dao import CommandsDAO, UsersDAO
 from app.auth.models import User
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
@@ -20,11 +21,20 @@ async def get_all_quest_blocks(
     """
     Получает все блоки квеста
     """
+    # Получить язык команды пользователя
+    users_dao = UsersDAO(session)
+
+    # TODO: Подумать над номером мероприятия
+    command = await users_dao.find_user_command_in_event(user.id)
+    if not command:
+        logger.error(f"Пользователь {user.id} не состоит ни в одной команде для стандартного мероприятия")
+        return
+
     # Пример данных блоков
     blocks_dao = BlocksDAO(session)
 
-    filter_model = BlockFilter(language_id=1)
-    blocks = await blocks_dao.find_all(filters=filter_model)
+    # TODO: По-хорошему это надо закэшировать
+    blocks = await blocks_dao.find_all(filters=BlockFilter(language_id=command.language_id))
     example_blocks = [{
         "id": block.id,
         "title": block.title,
