@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from app.quest.router import router as router_quest
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
 from app.utils.template import render_template
@@ -95,9 +96,17 @@ def register_routers(app: FastAPI) -> None:
         # @root_router.get("/{full_path:path}")
         # async def serve_vue_app(full_path: str):
         #     return FileResponse(os.path.join(frontend_path, "index.html"))
-    # Подключение роутеров
-    app.include_router(root_router, tags=["root"])
-    app.include_router(router_auth, prefix='/api/auth', tags=['Auth'])
+    # Создаем основной API роутер
+    app.include_router(root_router)
+
+    api_router = APIRouter(prefix='/api')
+
+    # Подключаем все роутеры к API роутеру
+    api_router.include_router(router_auth, prefix='/auth', tags=['Auth'])
+    api_router.include_router(router_quest, prefix='/quest', tags=['Quest'])
+
+    # Подключаем основной API роутер к приложению
+    app.include_router(api_router)
     init_admin(app, base_url='/cms')
 
 # Создание экземпляра приложения

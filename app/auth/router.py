@@ -7,9 +7,8 @@ from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
 from app.auth.dao import CommandsDAO, RolesUsersCommand, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandName, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, RoleFilter
+from app.auth.schemas import CommandBase, CommandName, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID
 from fastapi.responses import JSONResponse
-from app.config import CURRENT_EVENT_NAME
 from app.exceptions import InternalServerErrorException
 router = APIRouter()
 

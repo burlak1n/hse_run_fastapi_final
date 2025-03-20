@@ -11,6 +11,29 @@
     <a href="/">Назад</a>
     <div class="container">
         <h2>Квест</h2>
+        <div id="blocks-container" class="blocks-grid"></div>
     </div>
+    <script>
+        async function fetchUserData() {
+            try {
+                const res = await fetch('/api/quest');
+                if (!res.ok) throw new Error('Ошибка сервера');
+                const { blocks } = await res.json();
+                document.getElementById('blocks-container').innerHTML = blocks.map(b => `
+                    <div class="block">
+                        <button onclick="startBlock(${b.id})">${b.title}</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                window.location.href = '/registration';
+            }
+        }
+
+        function startBlock(blockId) {
+            window.location.href = `/quest/${blockId}`;
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchUserData);
+    </script>
 </body>
 </html>
