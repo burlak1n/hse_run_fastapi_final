@@ -23,4 +23,7 @@ database_url = settings.DB_URL
 
 SESSION_EXPIRE_SECONDS = timedelta(days=7).total_seconds()
 
+CURRENT_EVENT_NAME = "HSERUN29"
+CAPTAIN_ROLE_NAME = "captain"
+
 DEBUG = False

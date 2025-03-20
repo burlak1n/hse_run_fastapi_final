@@ -29,7 +29,7 @@ async def create_session(user_id: int) -> Session:
     """Создание новой сессии"""
 
     token = secrets.token_urlsafe(32)  # Генерация случайного токена
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)  # Срок действия сессии
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=SESSION_EXPIRE_SECONDS)  # Срок действия сессии
 
     session = Session(user_id=user_id, token=token, expires_at=expires_at, is_active=True)
 

@@ -4,23 +4,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate
 from app.auth.utils import create_session
+from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME
 from app.dao.base import BaseDAO
-from app.auth.models import Event, Session, User, CommandsUser, Command
+from app.auth.models import Event, Role, RoleUserCommand, Session, User, CommandsUser, Command
 from app.logger import logger
 
 class UsersDAO(BaseDAO):
     model = User
-    async def find_user_command_in_event(self, user_id: int, event_name: str) -> Optional[Command]:
+    async def find_user_command_in_event(self, user_id: int, event_id: str) -> Optional[Command]:
         """
         Находит команду, в которой состоит пользователь для указанного мероприятия.
         """
-        logger.info(f"Поиск команды для пользователя {user_id} в мероприятии {event_name}")
+        logger.info(f"Поиск команды для пользователя {user_id} в мероприятии {event_id}")
         try:
             query = (
                 select(Command)
                 .join(CommandsUser, Command.id == CommandsUser.command_id)
-                .join(Event, Command.event_id == Event.id)
-                .filter(Event.name == event_name)  # Фильтруем по названию мероприятия
+                .filter(Command.event_id == event_id)  # Фильтруем по ID мероприятия
                 .filter(CommandsUser.user_id == user_id)  # Фильтруем по ID пользователя
                 .options(selectinload(Command.users_association).selectinload(CommandsUser.user))
                 .options(selectinload(Command.users_association).selectinload(CommandsUser.role))
@@ -78,11 +78,48 @@ class CommandsUsersDAO(BaseDAO):
 class CommandsDAO(BaseDAO):
     model = Command
 
-# class RoleDAO(BaseDAO):
-#     model = Role
+class RolesDAO(BaseDAO):
+    model = Role
+
+class RolesUsersCommand(BaseDAO):
+    model = RoleUserCommand
+
+    async def get_role_id(self, role_name = CAPTAIN_ROLE_NAME) -> Optional[int]:
+        """
+        Получает ID роли по имени. Стандартно - капитана
+
+        Returns:
+            ID роли капитана или None, если роль не найдена
+        """
+        try:
+            # Ищем роль с именем "captain" и возвращаем только её ID
+            query = select(Role.id).where(Role.name == role_name)
+            result = await self._session.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Ошибка при получении ID роли капитана: {e}")
+            raise
 
 class EventsDAO(BaseDAO):
     model = Event
+
+    async def get_event_id_by_name(self, event_name: str = CURRENT_EVENT_NAME) -> Optional[int]:
+        """
+        Получает ID события по его имени. По умолчанию - текущее событие
+
+        Args:
+            event_name: Название события
+
+        Returns:
+            ID события или None, если событие не найдено
+        """
+        try:
+            query = select(self.model.id).where(self.model.name == event_name)
+            result = await self._session.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Ошибка при получении ID события по имени '{event_name}': {e}")
+            raise
 
 class SessionDAO(BaseDAO):
     model = Session

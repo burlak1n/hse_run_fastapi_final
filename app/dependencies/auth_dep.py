@@ -76,6 +76,7 @@ async def get_current_user(
     
     logger.info(f"Найдена сессия для пользователя с ID: {user_session.user_id}")
     
+    # TODO Обновление сессии пользователя?
     # Получаем пользователя
     user = await users_dao.find_one_or_none_by_id(user_session.user_id)
     if not user:
