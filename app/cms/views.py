@@ -1,5 +1,5 @@
 from sqladmin import ModelView
-from app.auth.models import Event, User, Role, Command, Language
+from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand
 from app.quest.models import Block
 
 class UserAdmin(ModelView, model=User):
@@ -26,7 +26,7 @@ class EventAdmin(ModelView, model=Event):
         Event.created_at,
         Event.updated_at
     ]
-    form_columns = [Event.name, Event.commands]
+    form_columns = [Event.name]
 
 
 class CommandAdmin(ModelView, model=Command):
@@ -44,3 +44,11 @@ class LanguageAdmin(ModelView, model=Language):
         Language.blocks
     ]
     form_columns = [Language.name]
+    
+class RoleUserCommandAdmin(ModelView, model=RoleUserCommand):
+    column_list = [
+        RoleUserCommand.id,
+        RoleUserCommand.name
+    ]
+    form_columns = [RoleUserCommand.name]
+

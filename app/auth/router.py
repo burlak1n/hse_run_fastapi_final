@@ -6,10 +6,12 @@ from app.auth.models import User
 from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
-from app.auth.dao import CommandsDAO, RolesUsersCommand, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID
+from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID
 from fastapi.responses import JSONResponse
 from app.exceptions import InternalServerErrorException
+from app.logger import logger
+
 router = APIRouter()
 
 @router.post("/logout")
@@ -91,7 +93,7 @@ async def complete_registration(
 async def get_me(user_data: User = Depends(get_current_user)) -> SUserInfo:
     return SUserInfo.model_validate(user_data)
 
-@router.get("command")
+@router.get("/command")
 async def command_create(
     session: AsyncSession = Depends(get_session_with_commit),
     user: User = Depends(get_current_user)
@@ -100,17 +102,20 @@ async def command_create(
     command = await users_dao.find_user_command_in_event(user_id=user.id)
     return CommandInfo.model_validate(command)
 
-@router.post("command/create")
+@router.post("/command/create")
 async def command_create(
     request: CommandName,
     session: AsyncSession = Depends(get_session_with_commit),
     user: User = Depends(get_current_user)
 ):
+    logger.info(f"Попытка создания команды пользователем {user.id} с именем {request.name}")
+    
     # Получаем текущее событие
     event_dao = EventsDAO(session)
     curr_event_id = await event_dao.get_event_id_by_name()
     
     if not curr_event_id:
+        logger.error("Не удалось получить ID текущего события")
         raise InternalServerErrorException
 
     command_dao = CommandsDAO(session)
@@ -118,21 +123,27 @@ async def command_create(
     
     # Создаем команду с event_id текущего события
     command = await command_dao.add(values=CommandBase(name=request.name, event_id=curr_event_id))
+    logger.info(f"Создана новая команда с ID {command.id}")
 
     # Получаем роль капитана
-    roles_users_dao = RolesUsersCommand(session)
+    roles_users_dao = RolesUsersCommandDAO(session)
     captain_role_id = await roles_users_dao.get_role_id()
     
     if not captain_role_id:
+        logger.error("Не удалось получить ID роли капитана")
         raise InternalServerErrorException
 
+    
+    command_users_dao = CommandsUsersDAO(session)
     # Создаем связь пользователя с командой
-    await users_dao.create_command_user(
+    await command_users_dao.add(CommandsUserBase(
         command_id=command.id,
         user_id=user.id,
         role_id=captain_role_id
-    )
+    ))
+    logger.info(f"Пользователь {user.id} назначен капитаном команды {command.id}")
     
+    logger.info(f"Команда {command.id} успешно создана")
     return JSONResponse(
         status_code=200,
         content={"message": "Команда успешно создана"}

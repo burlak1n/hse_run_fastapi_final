@@ -58,15 +58,14 @@ class UsersDAO(BaseDAO):
             logger.error(f"Ошибка при проверке роли капитана: {e}")
             raise
 
-    async def create_command_user(self, command_id: int, user_id: int, role_id: int):
+    async def create_command_user(self, CommandsUserBase):
         """
         Создает запись в таблице CommandsUser.
         """
-        logger.info(f"Создание записи в таблице CommandsUser для команды {command_id} и пользователя {user_id}")
+        logger.info(f"Создание записи в таблице CommandsUser для команды {CommandsUserBase.command_id} и пользователя {CommandsUserBase.user_id}")
         try:
-            command_user = CommandsUser(command_id=command_id, user_id=user_id, role_id=role_id)
-            await self.add(command_user)
-            logger.info(f"Запись в таблице CommandsUser успешно создана")
+            command_user = await self.add(CommandsUserBase)
+            logger.info("Запись в таблице CommandsUser успешно создана")
             return command_user
         except Exception as e:
             logger.error(f"Ошибка при создании записи в таблице CommandsUser: {e}")
@@ -85,7 +84,7 @@ class LanguagesDAO(BaseDAO):
     model = Language
     
 
-class RolesUsersCommand(BaseDAO):
+class RolesUsersCommandDAO(BaseDAO):
     model = RoleUserCommand
 
     async def get_role_id(self, role_name = CAPTAIN_ROLE_NAME) -> Optional[int]:
@@ -95,13 +94,21 @@ class RolesUsersCommand(BaseDAO):
         Returns:
             ID роли капитана или None, если роль не найдена
         """
+        logger.info(f"Попытка получения ID роли с именем '{role_name}'")
         try:
             # Ищем роль с именем "captain" и возвращаем только её ID
-            query = select(Role.id).where(Role.name == role_name)
+            query = select(RoleUserCommand.id).where(RoleUserCommand.name == role_name)
             result = await self._session.execute(query)
-            return result.scalar_one_or_none()
+            role_id = result.scalar_one_or_none()
+            
+            if role_id:
+                logger.info(f"Успешно получен ID {role_id} для роли '{role_name}'")
+            else:
+                logger.warning(f"Роль с именем '{role_name}' не найдена")
+                
+            return role_id
         except Exception as e:
-            logger.error(f"Ошибка при получении ID роли капитана: {e}")
+            logger.error(f"Ошибка при получении ID роли '{role_name}': {e}")
             raise
 
 class EventsDAO(BaseDAO):

@@ -112,3 +112,16 @@ class CommandInfo(BaseModel):
     language_id: int
     users: list[dict] = []
     
+
+class CommandsUserBase(BaseModel):
+    command_id: int = Field(description="ID команды")
+    user_id: int = Field(description="ID пользователя")
+    role_id: int = Field(description="ID роли пользователя в команде")
+
+class CommandsUserCreate(CommandsUserBase):
+    pass
+
+class CommandsUser(CommandsUserBase):
+    id: int = Field(description="ID записи")
+    
+    model_config = ConfigDict(from_attributes=True)

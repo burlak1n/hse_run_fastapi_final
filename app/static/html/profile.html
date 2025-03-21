@@ -50,7 +50,7 @@
             e.preventDefault();
             const teamName = document.getElementById('team-name').value;
             try {
-                const response = await fetch('/api/teams/', {
+                const response = await fetch('/api/auth/command/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: teamName })
