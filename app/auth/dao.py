@@ -11,6 +11,24 @@ from app.logger import logger
 
 class UsersDAO(BaseDAO):
     model = User
+    async def find_one_by_id(self, user_id: int, options: list = None) -> Optional[User]:
+        """
+        Находит пользователя по ID с возможностью загрузки связанных данных.
+        """
+        logger.info(f"Поиск пользователя с ID {user_id} с опциями: {options}")
+        try:
+            query = select(self.model).filter_by(id=user_id)
+            if options:
+                for option in options:
+                    query = query.options(option)
+            result = await self._session.execute(query)
+            user = result.scalar_one_or_none()
+            logger.info(f"Пользователь {'найден' if user else 'не найден'}")
+            return user
+        except Exception as e:
+            logger.error(f"Ошибка при поиске пользователя: {e}")
+            raise
+
     async def find_user_command_in_event(self, user_id: int, event_id: int = 1) -> Optional[Command]:
         """
         Находит команду, в которой состоит пользователь для указанного мероприятия.

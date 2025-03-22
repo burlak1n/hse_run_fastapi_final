@@ -35,6 +35,18 @@ class RoleModel(BaseModel):
     name: str = Field(description="Название роли")
     model_config = ConfigDict(from_attributes=True)
 
+class ParticipantInfo(BaseModel):
+    id: int
+    full_name: str
+    role: str
+
+class CommandInfo(BaseModel):
+    id: int
+    name: str
+    role: str
+    event_id: int
+    language_id: int
+    participants: list[ParticipantInfo]
 
 class SUserInfo(UserBase):
     id: int = Field(description="Идентификатор пользователя")
@@ -44,8 +56,11 @@ class SUserInfo(UserBase):
     )
     role: Optional[RoleModel] = Field(
         default=None,
-        exclude=True,
         description="Роль пользователя"
+    )
+    commands: list[CommandInfo] = Field(
+        default_factory=list,
+        description="Список команд пользователя"
     )
 
     @computed_field
@@ -103,14 +118,6 @@ class SessionCreate(BaseModel):
 
 class CompleteRegistrationRequest(BaseModel):
     full_name: str
-    
-
-class CommandInfo(BaseModel):
-    id: int
-    name: str
-    event_id: int
-    language_id: int
-    users: list[dict] = []
     
 
 class CommandsUserBase(BaseModel):

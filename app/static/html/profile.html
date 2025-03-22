@@ -10,61 +10,85 @@
     <h1>HSE RUN</h1>
     <a href="/">Назад</a>
     <div class="container">
-    <button id="logout-btn">Выйти</button>
-
+        <button id="logout-btn">Выйти</button>
         <h2>Профиль</h2>
         <div id="user-info" hidden>
             <p>ФИО: <span id="full_name"></span></p>
-            
-            <!-- Форма создания команды -->
-            <h3>Создать команду</h3>
-            <form id="create-team-form">
-                <div>
-                    <input type="text" id="team-name" placeholder="Название команды" required>
-                </div>
-                <button type="submit">Создать</button>
-            </form>
-            <div id="team-error" style="color: red; margin-top: 10px;" hidden></div>
+            <div id="team-info" hidden>
+                <h3>Ваша команда</h3>
+                <p><span id="team-name-info"></span></p>
+                <div id="team-participants"></div>
+                <button id="leave-team-btn">Покинуть команду</button>
+            </div>
+            <div id="create-team" hidden>
+                <h3>Создать команду</h3>
+                <form id="create-team-form">
+                    <input type="text" id="team-name-input" placeholder="Название команды" required>
+                    <button type="submit">Создать</button>
+                </form>
+                <div id="team-error" style="color: red; margin-top: 10px;" hidden></div>
+            </div>
         </div>
     </div>
     <script>
+        const el = id => document.getElementById(id);
+        const show = id => el(id).hidden = false;
+        const hide = id => el(id).hidden = true;
+        const setText = (id, text) => el(id).textContent = text;
+
         async function fetchUserData() {
             try {
                 const res = await fetch('/api/auth/me/');
-                if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка');
-                const { full_name } = await res.json();
-                document.getElementById('full_name').textContent = full_name;
-                document.getElementById('user-info').hidden = false;
-            } catch (e) {
-                window.location.href = '/registration'
+                if (!res.ok) throw new Error('Ошибка загрузки данных');
+                const { full_name, commands } = await res.json();
+                
+                setText('full_name', full_name);
+                show('user-info');
+
+                if (commands?.length) {
+                    const team = commands[0];
+                    setText('team-name-info', `${team.name} ${team.participants.length}/6`);
+                    
+                    el('team-participants').innerHTML = team.participants
+                        .map(p => `<p>${p.role === 'captain' ? 'к ' : ''}${p.full_name}</p>`)
+                        .join('');
+                    show('team-info');
+                } else {
+                    show('create-team');
+                }
+            } catch {
+                window.location.href = '/registration';
             }
         }
 
-        document.getElementById('logout-btn').addEventListener('click', async () => {
-            await fetch('/api/auth/logout', { method: 'POST' });
-            window.location.href = '/';
-        });
+        const handleRequest = async (url, method, body) => {
+            const res = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body });
+            if (!res.ok) throw new Error('Ошибка запроса');
+            window.location.reload();
+        };
 
-        // Обработчик формы создания команды
-        document.getElementById('create-team-form').addEventListener('submit', async (e) => {
+        el('logout-btn').onclick = () => handleRequest('/api/auth/logout', 'POST');
+        
+        el('create-team-form').onsubmit = async e => {
             e.preventDefault();
-            const teamName = document.getElementById('team-name').value;
             try {
-                const response = await fetch('/api/auth/command/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: teamName })
-                });
-                if (!response.ok) throw new Error('Ошибка при создании команды');
-                alert('Команда успешно создана!');
-                // Можно добавить перенаправление или обновление страницы
-                window.location.reload();
-            } catch (error) {
-                const teamError = document.getElementById('team-error');
-                teamError.textContent = error.message;
-                teamError.hidden = false;
+                await handleRequest('/api/auth/command/create', 'POST', 
+                    JSON.stringify({ name: el('team-name-input').value }));
+            } catch (e) {
+                setText('team-error', e.message);
+                show('team-error');
             }
-        });
+        };
+
+        el('leave-team-btn').onclick = async () => {
+            if (confirm('Вы уверены, что хотите покинуть команду?')) {
+                try {
+                    await handleRequest('/api/auth/command/leave', 'POST');
+                } catch (e) {
+                    alert(e.message);
+                }
+            }
+        };
         
         fetchUserData();
     </script>

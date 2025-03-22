@@ -3,6 +3,7 @@ from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
 from app.quest.models import Block
+from pydantic import BaseModel
 
 class Role(Base):
     # "guest" "organizer" "insider" 
@@ -56,6 +57,7 @@ class Command(Base):
     language: Mapped["Language"] = relationship("Language", back_populates="commands")
 
     def __repr__(self):
+        return self.name
         participants = []
         for idx, user_assoc in enumerate(self.users, start=1):
             role = user_assoc.role.name if user_assoc.role else ""
@@ -65,6 +67,7 @@ class Command(Base):
             participants.append(participant_info)
         participants_str = "\n".join(participants)
         return f"Команда: {self.name} | {len(self.users)}/6\n{participants_str}"
+
     # __table_args__ = (
     #     CheckConstraint('count_users >= 1 AND count_users <= 100', name='check_count_users_range'),
     # )
@@ -96,6 +99,9 @@ class CommandsUser(BaseNoID):
     command: Mapped["Command"] = relationship("Command", back_populates="users")
     user: Mapped["User"] = relationship("User", back_populates="commands")
     role: Mapped["RoleUserCommand"] = relationship("RoleUserCommand")
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(command_id={self.command_id}, user_id={self.user_id}, role_id={self.role_id})"
 
 
 class Session(Base):

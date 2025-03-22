@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Response, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, joinedload
 
-from app.auth.models import User
+from app.auth.models import User, CommandsUser, Command
 from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
 from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo
 from fastapi.responses import JSONResponse
 from app.exceptions import InternalServerErrorException
 from app.logger import logger
@@ -90,8 +91,51 @@ async def complete_registration(
     }
 
 @router.get("/me")
-async def get_me(user_data: User = Depends(get_current_user)) -> SUserInfo:
-    return SUserInfo.model_validate(user_data)
+async def get_me(
+    user_data: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session_with_commit)
+) -> SUserInfo:
+    # Оптимизированный запрос с минимально необходимыми данными
+    users_dao = UsersDAO(session)
+    user = await users_dao.find_one_by_id(
+        user_data.id,
+        options=[
+            selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.user),
+            selectinload(User.commands).joinedload(CommandsUser.role),
+            selectinload(User.role)
+        ]
+    )
+    
+    # Оптимизированное формирование информации о командах
+    commands_info = [
+        CommandInfo(
+            id=cu.command.id,
+            name=cu.command.name,
+            role=cu.role.name,
+            event_id=cu.command.event_id,
+            language_id=cu.command.language_id,
+            participants=[
+                ParticipantInfo(
+                    id=cu_user.user.id,
+                    full_name=cu_user.user.full_name,
+                    role=cu_user.role.name
+                )
+                for cu_user in cu.command.users
+            ]
+        ).model_dump()
+        for cu in user.commands
+    ]
+
+    # Возвращаем информацию о пользователе
+    return SUserInfo(
+        id=user.id,
+        full_name=user.full_name,
+        telegram_id=user.telegram_id,
+        telegram_username=user.telegram_username,
+        role_id=user.role_id,
+        role=RoleModel(id=user.role.id, name=user.role.name),
+        commands=commands_info
+    )
 
 @router.get("/command")
 async def command_create(
