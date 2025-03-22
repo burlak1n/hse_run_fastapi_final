@@ -18,7 +18,7 @@
                 <h3>Ваша команда</h3>
                 <p><span id="team-name-info"></span></p>
                 <div id="team-participants"></div>
-                <button id="leave-team-btn">Покинуть команду</button>
+                <!-- <button id="leave-team-btn">Покинуть команду</button> -->
             </div>
             <div id="create-team" hidden>
                 <h3>Создать команду</h3>
@@ -80,15 +80,15 @@
             }
         };
 
-        el('leave-team-btn').onclick = async () => {
-            if (confirm('Вы уверены, что хотите покинуть команду?')) {
-                try {
-                    await handleRequest('/api/auth/command/leave', 'POST');
-                } catch (e) {
-                    alert(e.message);
-                }
-            }
-        };
+        // el('leave-team-btn').onclick = async () => {
+        //     if (confirm('Вы уверены, что хотите покинуть команду?')) {
+        //         try {
+        //             await handleRequest('/api/auth/command/leave', 'POST');
+        //         } catch (e) {
+        //             alert(e.message);
+        //         }
+        //     }
+        // };
         
         fetchUserData();
     </script>
