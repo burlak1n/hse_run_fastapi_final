@@ -47,12 +47,16 @@
 
                 if (commands?.length) {
                     const team = commands[0];
-                    setText('team-name-info', `${team.name} ${team.participants.length}/6`);
-                    
-                    el('team-participants').innerHTML = team.participants
-                        .map(p => `<p>${p.role === 'captain' ? 'к ' : ''}${p.full_name}</p>`)
-                        .join('');
-                    show('team-info');
+                    if (team) {
+                        setText('team-name-info', `${team.name} ${team.participants.length}/6`);
+                        
+                        el('team-participants').innerHTML = team.participants
+                            .map(p => `<p>${p.role === 'captain' ? 'к ' : ''}${p.full_name}</p>`)
+                            .join('');
+                        show('team-info');
+                    } else {
+                        show('create-team');
+                    }
                 } else {
                     show('create-team');
                 }
