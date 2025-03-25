@@ -132,7 +132,6 @@ async def get_me(
         full_name=user.full_name,
         telegram_id=user.telegram_id,
         telegram_username=user.telegram_username,
-        role_id=user.role_id,
         role=RoleModel(id=user.role.id, name=user.role.name),
         commands=commands_info
     )

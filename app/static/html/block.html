@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quest Block</title>
+</head>
+<body>
+    <button class="back-button" onclick="window.history.back()">← Назад</button>
+    <h1 id="block-title"></h1>
+    <div id="content"></div>
+
+    <script>
+        const blockId = window.location.pathname.split('/').pop();
+        const title = document.getElementById('block-title');
+        const content = document.getElementById('content');
+
+        async function loadBlock() {
+            try {
+                const response = await fetch(`/api/quest/${blockId}`);
+                if (!response.ok) throw new Error('Failed to load');
+                
+                const { block } = await response.json();
+                title.textContent = block.title;
+                
+                if (block.riddles?.length) {
+                    content.innerHTML = block.riddles.map(r => `
+                        <div class="riddle">
+                            <h3>${r.title}</h3>
+                            ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px;">` : ''}
+                            <p>Гео-ответ: ${r.geo_answered || 'Нет данных'}</p>
+                            <p>Текстовый ответ: ${r.text_answered || 'Нет данных'}</p>
+                            ${r.image_path_answered ? `<img src="/static/img/${r.image_path_answered}" style="max-width: 300px;">` : ''}
+                            ${r.answers.length ? `
+                                <h4>Ответы:</h4>
+                                <ul>
+                                    ${r.answers.map(a => `<li>${a.answer_text}</li>`).join('')}
+                                </ul>
+                            ` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    content.textContent = 'Загадки не найдены';
+                }
+            } catch (error) {
+                content.textContent = 'Ошибка загрузки данных блока';
+            }
+        }
+
+        loadBlock();
+    </script>
+</body>
+</html>

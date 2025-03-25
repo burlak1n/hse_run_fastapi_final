@@ -1,6 +1,13 @@
 from sqladmin import ModelView
 from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand
-from app.quest.models import Block
+from app.quest.models import Answer, Block, Question
+from sqladmin.forms import FileField
+from fastapi import UploadFile, Request
+from app.logger import logger
+from typing import Any
+import os
+from pathlib import Path
+from markupsafe import Markup
 
 class UserAdmin(ModelView, model=User):
     column_list = [
@@ -52,3 +59,93 @@ class RoleUserCommandAdmin(ModelView, model=RoleUserCommand):
     ]
     form_columns = [RoleUserCommand.name]
 
+class QuestionAdmin(ModelView, model=Question):
+    column_list = [
+        Question.id,
+        Question.title,
+        Question.block,
+        Question.image_path,
+        Question.geo_answered,
+        Question.text_answered,
+        Question.image_path_answered
+    ]
+
+    form_columns = [
+        Question.title,
+        Question.block,
+        Question.image_path,
+        Question.geo_answered,
+        Question.text_answered,
+        Question.image_path_answered
+    ]
+    form_overrides = {
+        'image_path': FileField,
+        'image_path_answered': FileField
+    }
+
+    def format_image_url(model, attribute) -> Markup:
+        image_path = getattr(model, attribute)
+        if image_path:
+            return Markup(f'<img src="/static/img/{image_path}" style="max-width: 200px; max-height: 200px;" />')
+        return Markup('')
+
+    column_formatters = {
+        "image_path": format_image_url,
+        "image_path_answered": format_image_url,
+    }
+    column_formatters_detail = {
+        "image_path": format_image_url,
+        "image_path_answered": format_image_url,
+    }
+
+    async def on_model_change(self, data: dict, model: Any, is_created: bool, request: Request) -> None:
+        if 'image_path' in data:
+            file = data['image_path']
+            if hasattr(file, 'filename') and hasattr(file, 'read'):
+                file_content = await file.read()
+                file_path = Path("app/static/img") / file.filename
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                # Сохраняем только имя файла в базу данных
+                data['image_path'] = file.filename
+            else:
+                data['image_path'] = file
+
+        if 'image_path_answered' in data:
+            file = data['image_path_answered']
+            if hasattr(file, 'filename') and hasattr(file, 'read'):
+                file_content = await file.read()
+                file_path = Path("app/static/img") / file.filename
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                # Сохраняем только имя файла в базу данных
+                data['image_path_answered'] = file.filename
+            else:
+                data['image_path_answered'] = file
+
+        return await super().on_model_change(data, model, is_created, request)
+
+
+    async def on_model_delete(self, model: Any) -> None:
+        # Удаляем файл image_path, если он существует
+        if model.image_path:
+            file_path = Path("app/static/img") / model.image_path
+            if file_path.exists():
+                os.remove(file_path)
+
+        # Удаляем файл image_path_answered, если он существует
+        if model.image_path_answered:
+            file_path = Path("app/static/img") / model.image_path_answered
+            if file_path.exists():
+                os.remove(file_path)
+
+        return await super().on_model_delete(model)
+
+class AnswerAdmin(ModelView, model=Answer):
+    column_list = [
+        Answer.id,
+        Answer.answer_text
+    ]
+    form_columns = [
+        Answer.answer_text
+    ]

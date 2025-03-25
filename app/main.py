@@ -80,6 +80,10 @@ def register_routers(app: FastAPI) -> None:
         async def quest_page(request: Request):
             return render_template(request, "quest.html")
 
+        @root_router.get("/quest/{block_id}", tags=["quest"])
+        async def quest_block_page(request: Request, block_id: int):
+            return render_template(request, "block.html", {"block_id": block_id})
+
         @root_router.get("/profile", tags=["profile"])
         async def profile_page(request: Request):
             return render_template(request, "profile.html")

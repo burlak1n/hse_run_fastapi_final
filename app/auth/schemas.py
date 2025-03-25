@@ -50,10 +50,6 @@ class CommandInfo(BaseModel):
 
 class SUserInfo(UserBase):
     id: int = Field(description="Идентификатор пользователя")
-    role_id: Optional[int] = Field(
-        default=None,
-        description="Идентификатор роли пользователя. Если NULL - пользователь неактивен"
-    )
     role: Optional[RoleModel] = Field(
         default=None,
         description="Роль пользователя"
@@ -62,10 +58,6 @@ class SUserInfo(UserBase):
         default_factory=list,
         description="Список команд пользователя"
     )
-
-    @computed_field
-    def role_name(self) -> Optional[str]:
-        return self.role.name if self.role else None
 
     model_config = ConfigDict(from_attributes=True)
 

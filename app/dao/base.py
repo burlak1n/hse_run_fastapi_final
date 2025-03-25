@@ -22,7 +22,7 @@ class BaseDAO(Generic[T]):
         try:
             query = select(self.model).filter_by(id=data_id)
             result = await self._session.execute(query)
-            record = result.scalar_one_or_none()
+            record = result.unique().scalar_one_or_none()
             log_message = f"Запись {self.model.__name__} с ID {data_id} {'найдена' if record else 'не найдена'}."
             logger.info(log_message)
             return record

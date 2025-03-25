@@ -1,6 +1,6 @@
 from sqladmin import Admin
 from app.dao.database import engine
-from app.cms.views import BlockAdmin, EventAdmin, UserAdmin, RoleAdmin, CommandAdmin, LanguageAdmin, RoleUserCommandAdmin
+from app.cms.views import BlockAdmin, EventAdmin, UserAdmin, RoleAdmin, CommandAdmin, LanguageAdmin, RoleUserCommandAdmin, QuestionAdmin, AnswerAdmin
 
 def init_admin(app, base_url: str = "/admin"):
     """Инициализация SQLAdmin"""
@@ -12,3 +12,5 @@ def init_admin(app, base_url: str = "/admin"):
     admin.add_view(BlockAdmin)
     admin.add_view(LanguageAdmin)
     admin.add_view(EventAdmin)
+    admin.add_view(QuestionAdmin)
+    admin.add_view(AnswerAdmin)

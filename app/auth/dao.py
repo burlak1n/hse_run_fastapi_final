@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Optional
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate
@@ -8,6 +9,8 @@ from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME
 from app.dao.base import BaseDAO
 from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command
 from app.logger import logger
+from sqlalchemy.exc import SQLAlchemyError
+
 
 class UsersDAO(BaseDAO):
     model = User
@@ -38,15 +41,16 @@ class UsersDAO(BaseDAO):
             query = (
                 select(Command)
                 .join(CommandsUser, Command.id == CommandsUser.command_id)
-                .filter(Command.event_id == event_id)  # Фильтруем по ID мероприятия
-                .filter(CommandsUser.user_id == user_id)  # Фильтруем по ID пользователя
-                .options(selectinload(Command.users_association).selectinload(CommandsUser.user))
-                .options(selectinload(Command.users_association).selectinload(CommandsUser.role))
+                .filter(Command.event_id == event_id)
+                .filter(CommandsUser.user_id == user_id)
+                .options(
+                    selectinload(Command.users).joinedload(CommandsUser.user),
+                    selectinload(Command.users).joinedload(CommandsUser.role)
+                )
+                .limit(1)  # Добавляем лимит для оптимизации
             )
             result = await self._session.execute(query)
-            command = result.scalar_one_or_none()
-            logger.info(f"Результат поиска команды: {command}")
-            return command
+            return result.unique().scalar_one_or_none()
         except Exception as e:
             logger.error(f"Ошибка при поиске команды: {e}")
             raise
