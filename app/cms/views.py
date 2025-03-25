@@ -89,11 +89,19 @@ class QuestionAdmin(ModelView, model=Question):
             return Markup(f'<img src="/static/img/{image_path}" style="max-width: 200px; max-height: 200px;" />')
         return Markup('')
 
+    def format_block_link(model, attribute) -> Markup:
+        block = getattr(model, attribute)
+        if block:
+            return Markup(f'<a href="/cms/block/details/{block.id}">{block.title}</a>')
+        return Markup('')
+
     column_formatters = {
+        "block": format_block_link,
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
     }
     column_formatters_detail = {
+        "block": format_block_link,
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
     }
@@ -102,6 +110,12 @@ class QuestionAdmin(ModelView, model=Question):
         if 'image_path' in data:
             file = data['image_path']
             if hasattr(file, 'filename') and hasattr(file, 'read'):
+                # Удаляем старый файл, если он существует
+                if model.image_path:
+                    old_file_path = Path("app/static/img") / model.image_path
+                    if old_file_path.exists():
+                        os.remove(old_file_path)
+                
                 file_content = await file.read()
                 file_path = Path("app/static/img") / file.filename
                 with open(file_path, "wb") as f:
@@ -114,6 +128,12 @@ class QuestionAdmin(ModelView, model=Question):
         if 'image_path_answered' in data:
             file = data['image_path_answered']
             if hasattr(file, 'filename') and hasattr(file, 'read'):
+                # Удаляем старый файл, если он существует
+                if model.image_path_answered:
+                    old_file_path = Path("app/static/img") / model.image_path_answered
+                    if old_file_path.exists():
+                        os.remove(old_file_path)
+                
                 file_content = await file.read()
                 file_path = Path("app/static/img") / file.filename
                 with open(file_path, "wb") as f:
@@ -126,7 +146,7 @@ class QuestionAdmin(ModelView, model=Question):
         return await super().on_model_change(data, model, is_created, request)
 
 
-    async def on_model_delete(self, model: Any) -> None:
+    async def on_model_delete(self, model: Any, request: Request) -> None:
         # Удаляем файл image_path, если он существует
         if model.image_path:
             file_path = Path("app/static/img") / model.image_path
@@ -139,13 +159,28 @@ class QuestionAdmin(ModelView, model=Question):
             if file_path.exists():
                 os.remove(file_path)
 
-        return await super().on_model_delete(model)
+        return await super().on_model_delete(model, request)
 
 class AnswerAdmin(ModelView, model=Answer):
     column_list = [
         Answer.id,
-        Answer.answer_text
+        Answer.answer_text,
+        Answer.question
     ]
     form_columns = [
-        Answer.answer_text
+        Answer.answer_text,
+        Answer.question,
     ]
+
+    def format_question_link(model, attribute) -> Markup:
+        question = getattr(model, attribute)
+        if question:
+            return Markup(f'<a href="/cms/question/details/{question.id}">{question.title}</a>')
+        return Markup('')
+
+    column_formatters = {
+        "question": format_question_link,
+    }
+    column_formatters_detail = {
+        "question": format_question_link,
+    }

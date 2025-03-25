@@ -30,6 +30,9 @@ class Question(Base):
     # Связь с блоком
     block: Mapped["Block"] = relationship("Block", back_populates="questions")
 
+    # Добавляем связь с ответами
+    answers: Mapped[list["Answer"]] = relationship("Answer", back_populates="question")
+
     def __repr__(self):
         return f"Question(id={self.id}, title={self.title}, block_id={self.block_id})"
 
@@ -40,7 +43,7 @@ class Answer(Base):
     answer_text: Mapped[str]
 
     # Связь с вопросом
-    # question: Mapped["Question"] = relationship("Question", back_populates="answers")
+    question: Mapped["Question"] = relationship("Question", back_populates="answers")
 
     def __repr__(self):
         return f"Answer(id={self.id}, question_id={self.question_id}, answer_text={self.answer_text})"

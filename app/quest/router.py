@@ -121,25 +121,86 @@ async def get_riddles_for_block(block_id: int, session: AsyncSession) -> list:
     Получает список вопросов для указанного блока
     """
     questions_dao = QuestionsDAO(session)
-    questions = await questions_dao.find_all(filters=FindQuestionsForBlock(block_id= block_id))
+    questions = await questions_dao.find_all(filters=FindQuestionsForBlock(block_id=block_id))
     
     result = []
     for question in questions:
-        answers_dao = AnswersDAO(session)
-        answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id= question.id))
+        # answers_dao = AnswersDAO(session)
+        # answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id=question.id))
         
         result.append({
             "id": question.id,
             "title": question.title,
-            "image_path": question.image_path,
-            "geo_answered": question.geo_answered,
-            "text_answered": question.text_answered,
-            "image_path_answered": question.image_path_answered,
-            "answers": [{
-                "id": answer.id,
-                "answer_text": answer.answer_text
-            } for answer in answers]
+            "image_path": question.image_path
         })
     
     return result
-    
+
+@router.post("/check-answer/{riddle_id}")
+async def check_answer(
+    riddle_id: int,
+    answer_data: dict,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(get_current_user)
+):
+    """
+    Проверяет ответ пользователя на загадку
+    """
+    try:
+        logger.info(f"Начало проверки ответа. Пользователь: {user.id} (username: {user.telegram_username}), Загадка: {riddle_id}")
+        logger.debug(f"Полученные данные ответа: {answer_data}")
+        
+        # Получаем загадку
+        questions_dao = QuestionsDAO(session)
+        question = await questions_dao.find_one_or_none_by_id(riddle_id)
+        
+        if not question:
+            logger.warning(f"Загадка не найдена. ID: {riddle_id}, Пользователь: {user.id}")
+            return JSONResponse(
+                content={"ok": False, "message": "Riddle not found"},
+                status_code=404
+            )
+        
+        logger.debug(f"Найдена загадка: ID={question.id}, Название='{question.title}'")
+        
+        # Получаем все возможные ответы
+        answers_dao = AnswersDAO(session)
+        answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id=riddle_id))
+        logger.debug(f"Найдено {len(answers)} вариантов ответа для загадки {riddle_id}")
+        
+        # Проверяем ответ
+        def normalize_text(text: str) -> str:
+            """Нормализует текст для сравнения: удаляет лишние пробелы, приводит к нижнему регистру"""
+            return ' '.join(text.strip().lower().split())
+
+        user_answer = normalize_text(answer_data.get('answer', ''))
+        logger.debug(f"Нормализованный ответ пользователя: '{user_answer}'")
+        
+        for answer in answers:
+            normalized_answer = normalize_text(answer.answer_text)
+            logger.debug(f"Нормализованный вариант ответа: '{normalized_answer}'")
+            
+        is_correct = any(user_answer == normalize_text(answer.answer_text) for answer in answers)
+        logger.info(f"Результат проверки ответа: {'Правильно' if is_correct else 'Неправильно'}. Пользователь: {user.id}, Загадка: {riddle_id}")
+        # Формируем обновлённые данные загадки
+        updated_riddle = {
+            "id": question.id,
+            "title": question.title,
+            "text_answered": question.text_answered,
+            "image_path_answered": question.image_path_answered,
+            "geo_answered": question.geo_answered
+        }
+        
+        logger.debug(f"Возвращаемые данные загадки: {updated_riddle}")
+        return JSONResponse(content={
+            "ok": True,
+            "isCorrect": is_correct,
+            "updatedRiddle": updated_riddle
+        })
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка при проверке ответа. Пользователь: {user.id}, Загадка: {riddle_id}, Ошибка: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"ok": False, "message": "Internal server error"},
+            status_code=500
+        )    

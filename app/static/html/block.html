@@ -24,19 +24,16 @@
                 title.textContent = block.title;
                 
                 if (block.riddles?.length) {
-                    content.innerHTML = block.riddles.map(r => `
-                        <div class="riddle">
-                            <h3>${r.title}</h3>
-                            ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px;">` : ''}
-                            <p>Гео-ответ: ${r.geo_answered || 'Нет данных'}</p>
-                            <p>Текстовый ответ: ${r.text_answered || 'Нет данных'}</p>
-                            ${r.image_path_answered ? `<img src="/static/img/${r.image_path_answered}" style="max-width: 300px;">` : ''}
-                            ${r.answers.length ? `
-                                <h4>Ответы:</h4>
-                                <ul>
-                                    ${r.answers.map(a => `<li>${a.answer_text}</li>`).join('')}
-                                </ul>
-                            ` : ''}
+                    content.innerHTML = block.riddles.map((r, index) => `
+                        <div class="riddle" style="background-color: ${index % 2 === 0 ? '#f0f0f0' : '#e0e0e0'}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
+                            ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
+                            <div style="margin-bottom: 20px;">
+                                <button onclick="requestHint('${r.id}')">Подсказка</button>
+                            </div>
+                            <form onsubmit="handleRiddleSubmit(event, this, '${r.id}')" style="margin-top: 20px;">
+                                <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
+                                <button type="submit">Проверить ответ</button>
+                            </form>
                         </div>
                     `).join('');
                 } else {
@@ -44,6 +41,54 @@
                 }
             } catch (error) {
                 content.textContent = 'Ошибка загрузки данных блока';
+            }
+        }
+
+        async function handleRiddleSubmit(event, form, riddleId) {
+            event.preventDefault();
+            const answer = form.querySelector('input').value;
+            
+            try {
+                const response = await fetch(`/api/quest/check-answer/${riddleId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ answer })
+                });
+                
+                if (!response.ok) throw new Error('Ошибка проверки ответа');
+                
+                const { isCorrect, updatedRiddle } = await response.json();
+                
+                if (isCorrect) {
+                    const riddleDiv = form.closest('.riddle');
+                    riddleDiv.innerHTML = `
+                        <h3>${updatedRiddle.title}</h3>
+                        <p>${updatedRiddle.geo_answered || ''}</p>
+                        <p>${updatedRiddle.text_answered || 'Нет данных'}</p>
+                        ${updatedRiddle.image_path_answered ? `<img src="/static/img/${updatedRiddle.image_path_answered}" style="max-width: 300px;">` : ''}
+                    `;
+                } else {
+                    alert('Неправильный ответ, попробуйте ещё раз');
+                }
+            } catch (error) {
+                alert('Ошибка при проверке ответа');
+            }
+        }
+
+        async function requestHint(riddleId) {
+            const confirmed = confirm('Вы уверены, что хотите запросить подсказку? Это может повлиять на ваш результат.');
+            if (!confirmed) return;
+            
+            try {
+                const response = await fetch(`/api/quest/hint/${riddleId}`);
+                if (!response.ok) throw new Error('Ошибка запроса подсказки');
+                
+                const { hint } = await response.json();
+                alert(`Подсказка: ${hint}`);
+            } catch (error) {
+                alert('Ошибка при запросе подсказки');
             }
         }
 

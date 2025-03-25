@@ -45,3 +45,5 @@ Thumbs.db
 *~
 
 /myenv/
+/img/
+*.sqlite3
