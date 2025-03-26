@@ -70,3 +70,4 @@ class Attempt(Base):
     user: Mapped["User"] = relationship("User")
     question: Mapped["Question"] = relationship("Question")
     attempt_type: Mapped["AttemptType"] = relationship("AttemptType")
+    

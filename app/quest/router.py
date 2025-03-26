@@ -10,6 +10,8 @@ from app.dependencies.dao_dep import get_session_with_commit
 from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO
 from app.logger import logger
 from app.quest.schemas import BlockFilter, FindAnswersForQuestion, FindQuestionsForBlock
+from app.quest.models import Attempt, AttemptType
+from sqlalchemy import select
 
 router = APIRouter()
 
@@ -31,22 +33,20 @@ async def get_all_quest_blocks(
         logger.error(f"Пользователь {user.id} не состоит ни в одной команде для стандартного мероприятия")
         return
 
+    # Вычисляем счёт и монеты команды
+    team_stats = await calculate_team_score_and_coins(command.id, session)
+
     # Пример данных блоков
     blocks_dao = BlocksDAO(session)
 
     # TODO: По-хорошему это надо закэшировать
     blocks = await blocks_dao.find_all(filters=BlockFilter(language_id=command.language_id))
-    example_blocks = [{
-        "id": block.id,
-        "title": block.title,
-        "language_id": block.language_id
-    } for block in blocks]
-
-    logger.info(example_blocks)
 
     response_data = {
         "ok": True,
         "message": "Blocks load successful",
+        "team_score": team_stats["score"],  # Добавляем счёт команды
+        "team_coins": team_stats["coins"],  # Добавляем монеты команды
         "blocks": [{
             "id": block.id,
             "title": block.title,
@@ -83,6 +83,9 @@ async def get_quest_block(
             status_code=400
         )
 
+    # Вычисляем счёт и монеты команды
+    team_stats = await calculate_team_score_and_coins(command.id, session)
+
     blocks_dao = BlocksDAO(session)
     block = await blocks_dao.find_one_or_none_by_id(block_id)
     
@@ -106,6 +109,8 @@ async def get_quest_block(
     response_data = {
         "ok": True,
         "message": "Block loaded successfully",
+        "team_score": team_stats["score"],  # Добавляем счёт команды
+        "team_coins": team_stats["coins"],  # Добавляем монеты команды
         "block": {
             "id": block.id,
             "title": block.title,
@@ -125,14 +130,28 @@ async def get_riddles_for_block(block_id: int, session: AsyncSession) -> list:
     
     result = []
     for question in questions:
-        # answers_dao = AnswersDAO(session)
-        # answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id=question.id))
+        # Проверяем, была ли загадка решена командой
+        solved_attempt = await session.execute(
+            select(Attempt)
+            .where(Attempt.question_id == question.id)
+            .where(Attempt.is_true == True)
+        )
+        solved_attempt = solved_attempt.scalar_one_or_none()
         
-        result.append({
-            "id": question.id,
-            "title": question.title,
-            "image_path": question.image_path
-        })
+        # Если загадка решена, добавляем дополнительные данные
+        if solved_attempt:
+            result.append({
+                "id": question.id,
+                "title": question.title,
+                "text_answered": question.text_answered,
+                "image_path_answered": question.image_path_answered,
+                "geo_answered": question.geo_answered
+            })
+        else:
+            result.append({
+                "id": question.id,
+                "image_path": question.image_path
+            })
     
     return result
 
@@ -163,6 +182,32 @@ async def check_answer(
         
         logger.debug(f"Найдена загадка: ID={question.id}, Название='{question.title}'")
         
+        # Получаем команду пользователя
+        users_dao = UsersDAO(session)
+        command = await users_dao.find_user_command_in_event(user.id)
+        if not command:
+            logger.error(f"Пользователь {user.id} не состоит ни в одной команде")
+            return JSONResponse(
+                content={"ok": False, "message": "User is not in any command"},
+                status_code=400
+            )
+
+        # Проверяем, было ли уже начисление за эту загадку
+        existing_attempt = await session.execute(
+            select(Attempt)
+            .where(Attempt.command_id == command.id)
+            .where(Attempt.question_id == question.id)
+            .where(Attempt.is_true == True)
+        )
+        existing_attempt = existing_attempt.scalar_one_or_none()
+        
+        if existing_attempt:
+            logger.warning(f"Начисление уже было произведено. Команда: {command.id}, Загадка: {question.id}")
+            return JSONResponse(
+                content={"ok": False, "message": "Reward already given for this riddle"},
+                status_code=400
+            )
+        
         # Получаем все возможные ответы
         answers_dao = AnswersDAO(session)
         answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id=riddle_id))
@@ -182,6 +227,33 @@ async def check_answer(
             
         is_correct = any(user_answer == normalize_text(answer.answer_text) for answer in answers)
         logger.info(f"Результат проверки ответа: {'Правильно' if is_correct else 'Неправильно'}. Пользователь: {user.id}, Загадка: {riddle_id}")
+
+        attempt_type_name = "question"
+        attempt_type = await session.execute(
+            select(AttemptType)
+            .where(AttemptType.name == attempt_type_name)
+        )
+        attempt_type = attempt_type.scalar_one_or_none()
+        
+        if not attempt_type:
+            logger.error(f"Тип попытки '{attempt_type_name}' не найден")
+            return JSONResponse(
+                content={"ok": False, "message": "Attempt type not found"},
+                status_code=404
+            )
+
+        # Создаем попытку
+        attempt = Attempt(
+            user_id=user.id,
+            command_id=command.id,
+            question_id=question.id,
+            attempt_type_id=attempt_type.id,
+            attempt_text=user_answer,
+            is_true=is_correct
+        )
+        session.add(attempt)
+        await session.commit()
+
         # Формируем обновлённые данные загадки
         updated_riddle = {
             "id": question.id,
@@ -204,3 +276,25 @@ async def check_answer(
             content={"ok": False, "message": "Internal server error"},
             status_code=500
         )    
+
+async def calculate_team_score_and_coins(command_id: int, session: AsyncSession) -> dict:
+    """
+    Вычисляет счёт и количество монет команды на основе попыток
+    """
+    # Получаем все успешные попытки команды
+    result = await session.execute(
+        select(AttemptType.score, AttemptType.money)
+        .join(Attempt, Attempt.attempt_type_id == AttemptType.id)
+        .where(Attempt.command_id == command_id)
+        .where(Attempt.is_true == True)
+    )
+    scores_and_coins = result.all()
+    
+    # Суммируем все баллы и монеты
+    total_score = sum(score for score, _ in scores_and_coins) if scores_and_coins else 0
+    total_coins = sum(coins for _, coins in scores_and_coins) if scores_and_coins else 0
+    
+    return {
+        "score": total_score,
+        "coins": total_coins
+    }

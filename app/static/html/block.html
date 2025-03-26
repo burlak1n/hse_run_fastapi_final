@@ -7,6 +7,10 @@
 </head>
 <body>
     <button class="back-button" onclick="window.history.back()">← Назад</button>
+    <div class="team-stats">
+        <span>Счёт: <span id="team-score">0</span></span>
+        <span>Монеты: <span id="team-coins">0</span></span>
+    </div>
     <h1 id="block-title"></h1>
     <div id="content"></div>
 
@@ -20,22 +24,42 @@
                 const response = await fetch(`/api/quest/${blockId}`);
                 if (!response.ok) throw new Error('Failed to load');
                 
-                const { block } = await response.json();
+                const { block, team_score, team_coins } = await response.json();
+                
+                // Обновляем счёт и монеты
+                document.getElementById('team-score').textContent = team_score;
+                document.getElementById('team-coins').textContent = team_coins;
+                
                 title.textContent = block.title;
                 
                 if (block.riddles?.length) {
-                    content.innerHTML = block.riddles.map((r, index) => `
-                        <div class="riddle" style="background-color: ${index % 2 === 0 ? '#f0f0f0' : '#e0e0e0'}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
-                            ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
-                            <div style="margin-bottom: 20px;">
-                                <button onclick="requestHint('${r.id}')">Подсказка</button>
-                            </div>
-                            <form onsubmit="handleRiddleSubmit(event, this, '${r.id}')" style="margin-top: 20px;">
-                                <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
-                                <button type="submit">Проверить ответ</button>
-                            </form>
-                        </div>
-                    `).join('');
+                    content.innerHTML = block.riddles.map((r, index) => {
+                        // Если загадка решена, отображаем её данные
+                        if (r.text_answered || r.image_path_answered || r.geo_answered) {
+                            return `
+                                <div class="riddle" style="background-color: ${index % 2 === 0 ? '#f0f0f0' : '#e0e0e0'}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
+                                    <h3>${r.title || 'Загадка'}</h3>
+                                    <p>${r.geo_answered || ''}</p>
+                                    <p>${r.text_answered || 'Нет данных'}</p>
+                                    ${r.image_path_answered ? `<img src="/static/img/${r.image_path_answered}" style="max-width: 300px;">` : ''}
+                                </div>
+                            `;
+                        } else {
+                            // Если загадка не решена, отображаем форму для ответа
+                            return `
+                                <div class="riddle" style="background-color: ${index % 2 === 0 ? '#f0f0f0' : '#e0e0e0'}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
+                                    ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
+                                    <div style="margin-bottom: 20px;">
+                                        <button onclick="requestHint('${r.id}')">Подсказка</button>
+                                    </div>
+                                    <form onsubmit="handleRiddleSubmit(event, this, '${r.id}')" style="margin-top: 20px;">
+                                        <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
+                                        <button type="submit">Проверить ответ</button>
+                                    </form>
+                                </div>
+                            `;
+                        }
+                    }).join('');
                 } else {
                     content.textContent = 'Загадки не найдены';
                 }
