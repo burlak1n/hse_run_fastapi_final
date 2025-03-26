@@ -18,38 +18,34 @@
         <div id="blocks-container" class="blocks-grid"></div>
     </div>
     <script>
+        const updateUI = ({ blocks, team_score, team_coins }) => {
+            document.getElementById('team-score').textContent = team_score;
+            document.getElementById('team-coins').textContent = team_coins;
+            
+            document.getElementById('blocks-container').innerHTML = blocks.map(b => `
+                <div class="block">
+                    <button onclick="startBlock(${b.id})">${b.title}</button>
+                </div>
+            `).join('');
+        };
+
         async function fetchUserData() {
             try {
                 const res = await fetch('/api/quest');
                 if (!res.ok) throw new Error('Ошибка сервера');
-                const { blocks, team_score, team_coins } = await res.json();
-                
-                document.getElementById('team-score').textContent = team_score;
-                document.getElementById('team-coins').textContent = team_coins;
-                
-                document.getElementById('blocks-container').innerHTML = blocks.map(b => `
-                    <div class="block">
-                        <button onclick="startBlock(${b.id})">${b.title}</button>
-                    </div>
-                `).join('');
+                const data = await res.json();
+                updateUI(data);
             } catch (e) {
                 window.location.href = '/registration';
             }
         }
 
-        function startBlock(blockId) {
-            window.location.href = `/quest/${blockId}`;
-        }
-        // document.addEventListener('DOMContentLoaded', fetchUserData);
+        const startBlock = blockId => window.location.href = `/quest/${blockId}`;
 
-        // Добавляем обработчик события visibilitychange
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                fetchUserData();
-            }
+            if (document.visibilityState === 'visible') fetchUserData();
         });
 
-        // Вызываем сразу при загрузке
         fetchUserData();
     </script>
 </body>

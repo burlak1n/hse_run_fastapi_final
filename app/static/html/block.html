@@ -6,6 +6,7 @@
     <title>Quest Block</title>
 </head>
 <body>
+    <h1>HSE RUN</h1>
     <button class="back-button" onclick="window.history.back()">← Назад</button>
     <div class="team-stats">
         <span>Счёт: <span id="team-score">0</span></span>
@@ -25,22 +26,24 @@
             alert(message);
         };
 
-        // Функция для создания HTML загадки
+        // Оптимизированная функция создания HTML загадки
         const createRiddleHTML = (r, index, isAnswered) => {
             const bgColor = index % 2 === 0 ? '#f0f0f0' : '#e0e0e0';
+            const { title: riddleTitle = 'Загадка', geo_answered, text_answered, image_path_answered, image_path, id } = r;
+            
             return `
                 <div class="riddle" style="background-color: ${bgColor}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
-                    <h3>${r.title || 'Загадка'}</h3>
+                    <h3>${riddleTitle}</h3>
                     ${isAnswered ? `
-                        <p>${r.geo_answered || ''}</p>
-                        <p>${r.text_answered || 'Нет данных'}</p>
-                        ${r.image_path_answered ? `<img src="/static/img/${r.image_path_answered}" style="max-width: 300px;">` : ''}
+                        ${geo_answered ? `<p>${geo_answered}</p>` : ''}
+                        <p>${text_answered || 'Нет данных'}</p>
+                        ${image_path_answered ? `<img src="/static/img/${image_path_answered}" style="max-width: 300px;">` : ''}
                     ` : `
-                        ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
+                        ${image_path ? `<img src="/static/img/${image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
                         <div style="margin-bottom: 20px;">
-                            <button onclick="requestHint('${r.id}')">Подсказка</button>
+                            <button onclick="requestHint('${id}')">Подсказка</button>
                         </div>
-                        <form onsubmit="handleRiddleSubmit(event, this, '${r.id}')" style="margin-top: 20px;">
+                        <form onsubmit="handleRiddleSubmit(event, this, '${id}')" style="margin-top: 20px;">
                             <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
                             <button type="submit">Проверить ответ</button>
                         </form>
@@ -49,12 +52,13 @@
             `;
         };
 
+        // Оптимизированная функция загрузки блока
         async function loadBlock() {
             try {
-                const response = await fetch(`/api/quest/${blockId}`);
-                if (!response.ok) throw new Error('Ошибка загрузки данных');
-                
-                const { block, team_score, team_coins } = await response.json();
+                const [response, { block, team_score, team_coins }] = await Promise.all([
+                    fetch(`/api/quest/${blockId}`),
+                    fetch(`/api/quest/${blockId}`).then(res => res.ok ? res.json() : Promise.reject('Ошибка загрузки данных'))
+                ]);
                 
                 document.getElementById('team-score').textContent = team_score;
                 document.getElementById('team-coins').textContent = team_coins;
