@@ -2,8 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
-from app.quest.models import Block
-from pydantic import BaseModel
+from app.quest.models import Block, Transaction
 
 class Role(Base):
     # "guest" "organizer" "insider" 
@@ -55,6 +54,11 @@ class Command(Base):
     # Связь с языком
     language_id: Mapped[int] = mapped_column(ForeignKey('languages.id'), nullable=False, default=1)
     language: Mapped["Language"] = relationship("Language", back_populates="commands")
+
+    score: Mapped[int] = mapped_column(default=0)
+    coins: Mapped[int] = mapped_column(default=0)
+
+    transactions: Mapped[list["Transaction"]] = relationship("Transaction", back_populates="command")
 
     def __repr__(self):
         return self.name
