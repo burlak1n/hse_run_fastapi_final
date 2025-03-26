@@ -48,16 +48,6 @@ class Answer(Base):
     def __repr__(self):
         return f"Answer(id={self.id}, question_id={self.question_id}, answer_text={self.answer_text})"
 
-class Transaction(Base):
-    """Модель для учета всех финансовых операций"""
-    id: Mapped[int] = mapped_column(primary_key=True)
-    command_id: Mapped[int] = mapped_column(ForeignKey('commands.id'))
-    type: Mapped[str]  # 'score' или 'coins'
-    amount: Mapped[int]
-
-    # Связи
-    command: Mapped["Command"] = relationship("Command", back_populates="transactions")
-
 class AttemptType(Base):
     """Типы попыток"""
     name: Mapped[str]
@@ -66,16 +56,14 @@ class AttemptType(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
 
 class Attempt(Base):
-    """Попытки пользователей"""
+    """Попытки / Транзакции пользователей"""
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
     command_id: Mapped[int] = mapped_column(ForeignKey('commands.id'))
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
     question_id: Mapped[Optional[int]] = mapped_column(ForeignKey('questions.id'))
     attempt_type_id: Mapped[int] = mapped_column(ForeignKey('attempttypes.id'))
     attempt_text: Mapped[Optional[str]]
-    is_true: Mapped[Optional[bool]]
-    is_rewarded: Mapped[bool] = mapped_column(default=False)  # Было ли начисление
-    
+    is_true: Mapped[bool] = mapped_column(default=False) # Было ли начисление
 
     # Связи
     command: Mapped["Command"] = relationship("Command")
