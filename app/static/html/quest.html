@@ -40,8 +40,17 @@
         function startBlock(blockId) {
             window.location.href = `/quest/${blockId}`;
         }
+        // document.addEventListener('DOMContentLoaded', fetchUserData);
 
-        document.addEventListener('DOMContentLoaded', fetchUserData);
+        // Добавляем обработчик события visibilitychange
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                fetchUserData();
+            }
+        });
+
+        // Вызываем сразу при загрузке
+        fetchUserData();
     </script>
 </body>
 </html>

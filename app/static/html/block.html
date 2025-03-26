@@ -19,52 +19,52 @@
         const title = document.getElementById('block-title');
         const content = document.getElementById('content');
 
+        // Универсальная функция для обработки ошибок
+        const handleError = (message) => {
+            content.textContent = message;
+            alert(message);
+        };
+
+        // Функция для создания HTML загадки
+        const createRiddleHTML = (r, index, isAnswered) => {
+            const bgColor = index % 2 === 0 ? '#f0f0f0' : '#e0e0e0';
+            return `
+                <div class="riddle" style="background-color: ${bgColor}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
+                    <h3>${r.title || 'Загадка'}</h3>
+                    ${isAnswered ? `
+                        <p>${r.geo_answered || ''}</p>
+                        <p>${r.text_answered || 'Нет данных'}</p>
+                        ${r.image_path_answered ? `<img src="/static/img/${r.image_path_answered}" style="max-width: 300px;">` : ''}
+                    ` : `
+                        ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
+                        <div style="margin-bottom: 20px;">
+                            <button onclick="requestHint('${r.id}')">Подсказка</button>
+                        </div>
+                        <form onsubmit="handleRiddleSubmit(event, this, '${r.id}')" style="margin-top: 20px;">
+                            <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
+                            <button type="submit">Проверить ответ</button>
+                        </form>
+                    `}
+                </div>
+            `;
+        };
+
         async function loadBlock() {
             try {
                 const response = await fetch(`/api/quest/${blockId}`);
-                if (!response.ok) throw new Error('Failed to load');
+                if (!response.ok) throw new Error('Ошибка загрузки данных');
                 
                 const { block, team_score, team_coins } = await response.json();
                 
-                // Обновляем счёт и монеты
                 document.getElementById('team-score').textContent = team_score;
                 document.getElementById('team-coins').textContent = team_coins;
-                
                 title.textContent = block.title;
                 
-                if (block.riddles?.length) {
-                    content.innerHTML = block.riddles.map((r, index) => {
-                        // Если загадка решена, отображаем её данные
-                        if (r.text_answered || r.image_path_answered || r.geo_answered) {
-                            return `
-                                <div class="riddle" style="background-color: ${index % 2 === 0 ? '#f0f0f0' : '#e0e0e0'}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
-                                    <h3>${r.title || 'Загадка'}</h3>
-                                    <p>${r.geo_answered || ''}</p>
-                                    <p>${r.text_answered || 'Нет данных'}</p>
-                                    ${r.image_path_answered ? `<img src="/static/img/${r.image_path_answered}" style="max-width: 300px;">` : ''}
-                                </div>
-                            `;
-                        } else {
-                            // Если загадка не решена, отображаем форму для ответа
-                            return `
-                                <div class="riddle" style="background-color: ${index % 2 === 0 ? '#f0f0f0' : '#e0e0e0'}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
-                                    ${r.image_path ? `<img src="/static/img/${r.image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
-                                    <div style="margin-bottom: 20px;">
-                                        <button onclick="requestHint('${r.id}')">Подсказка</button>
-                                    </div>
-                                    <form onsubmit="handleRiddleSubmit(event, this, '${r.id}')" style="margin-top: 20px;">
-                                        <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
-                                        <button type="submit">Проверить ответ</button>
-                                    </form>
-                                </div>
-                            `;
-                        }
-                    }).join('');
-                } else {
-                    content.textContent = 'Загадки не найдены';
-                }
+                content.innerHTML = block.riddles?.length 
+                    ? block.riddles.map((r, index) => createRiddleHTML(r, index, r.text_answered || r.image_path_answered || r.geo_answered)).join('')
+                    : 'Загадки не найдены';
             } catch (error) {
-                content.textContent = 'Ошибка загрузки данных блока';
+                handleError('Ошибка загрузки данных блока');
             }
         }
 
@@ -75,35 +75,31 @@
             try {
                 const response = await fetch(`/api/quest/check-answer/${riddleId}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ answer })
                 });
                 
                 if (!response.ok) throw new Error('Ошибка проверки ответа');
                 
-                const { isCorrect, updatedRiddle } = await response.json();
+                const { isCorrect, updatedRiddle, team_score, team_coins } = await response.json();
                 
                 if (isCorrect) {
                     const riddleDiv = form.closest('.riddle');
-                    riddleDiv.innerHTML = `
-                        <h3>${updatedRiddle.title}</h3>
-                        <p>${updatedRiddle.geo_answered || ''}</p>
-                        <p>${updatedRiddle.text_answered || 'Нет данных'}</p>
-                        ${updatedRiddle.image_path_answered ? `<img src="/static/img/${updatedRiddle.image_path_answered}" style="max-width: 300px;">` : ''}
-                    `;
+                    riddleDiv.innerHTML = createRiddleHTML(updatedRiddle, 0, true);
                 } else {
                     alert('Неправильный ответ, попробуйте ещё раз');
                 }
+                
+                // Обновляем счёт и монеты
+                document.getElementById('team-score').textContent = team_score;
+                document.getElementById('team-coins').textContent = team_coins;
             } catch (error) {
-                alert('Ошибка при проверке ответа');
+                handleError('Ошибка при проверке ответа');
             }
         }
 
         async function requestHint(riddleId) {
-            const confirmed = confirm('Вы уверены, что хотите запросить подсказку? Это может повлиять на ваш результат.');
-            if (!confirmed) return;
+            if (!confirm('Вы уверены, что хотите запросить подсказку? Это может повлиять на ваш результат.')) return;
             
             try {
                 const response = await fetch(`/api/quest/hint/${riddleId}`);
@@ -112,7 +108,7 @@
                 const { hint } = await response.json();
                 alert(`Подсказка: ${hint}`);
             } catch (error) {
-                alert('Ошибка при запросе подсказки');
+                handleError('Ошибка при запросе подсказки');
             }
         }
 

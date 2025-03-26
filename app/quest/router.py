@@ -216,7 +216,8 @@ async def check_answer(
         # Проверяем ответ
         def normalize_text(text: str) -> str:
             """Нормализует текст для сравнения: удаляет лишние пробелы, приводит к нижнему регистру"""
-            return ' '.join(text.strip().lower().split())
+            # Удаляем все не буквенно-цифровые символы и пробелы
+            return ''.join(c for c in text.lower() if c.isalnum())
 
         user_answer = normalize_text(answer_data.get('answer', ''))
         logger.debug(f"Нормализованный ответ пользователя: '{user_answer}'")
@@ -248,26 +249,34 @@ async def check_answer(
             command_id=command.id,
             question_id=question.id,
             attempt_type_id=attempt_type.id,
-            attempt_text=user_answer,
+            attempt_text=answer_data.get('answer', ''),  # Сохраняем оригинальный ответ
             is_true=is_correct
         )
         session.add(attempt)
         await session.commit()
 
-        # Формируем обновлённые данные загадки
-        updated_riddle = {
-            "id": question.id,
-            "title": question.title,
-            "text_answered": question.text_answered,
-            "image_path_answered": question.image_path_answered,
-            "geo_answered": question.geo_answered
-        }
+        if is_correct:
+            # Формируем обновлённые данные загадки только при правильном ответе
+            updated_riddle = {
+                "id": question.id,
+                "title": question.title,
+                "text_answered": question.text_answered,
+                "image_path_answered": question.image_path_answered,
+                "geo_answered": question.geo_answered
+            }
+        else:
+            updated_riddle = None
+            
+        # Получаем обновлённые счёт и монеты команды
+        team_stats = await calculate_team_score_and_coins(command.id, session)
         
         logger.debug(f"Возвращаемые данные загадки: {updated_riddle}")
         return JSONResponse(content={
             "ok": True,
             "isCorrect": is_correct,
-            "updatedRiddle": updated_riddle
+            "updatedRiddle": updated_riddle,  # Будет null при неправильном ответе
+            "team_score": team_stats["score"],  # Добавляем счёт команды
+            "team_coins": team_stats["coins"]   # Добавляем монеты команды
         })
         
     except Exception as e:
