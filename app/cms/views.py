@@ -1,6 +1,6 @@
 from sqladmin import ModelView
 from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand
-from app.quest.models import Answer, Block, Question
+from app.quest.models import Answer, Block, Question, AttemptType, Attempt
 from sqladmin.forms import FileField
 from fastapi import UploadFile, Request
 from app.logger import logger
@@ -183,4 +183,76 @@ class AnswerAdmin(ModelView, model=Answer):
     }
     column_formatters_detail = {
         "question": format_question_link,
+    }
+
+class AttemptTypeAdmin(ModelView, model=AttemptType):
+    column_list = [
+        AttemptType.id,
+        AttemptType.name,
+        AttemptType.score,
+        AttemptType.money,
+        AttemptType.is_active
+    ]
+    form_columns = [
+        AttemptType.name,
+        AttemptType.score,
+        AttemptType.money,
+        AttemptType.is_active
+    ]
+
+class AttemptAdmin(ModelView, model=Attempt):
+    column_list = [
+        Attempt.id,
+        Attempt.command,
+        Attempt.user,
+        Attempt.question,
+        Attempt.attempt_type,
+        Attempt.attempt_text,
+        Attempt.is_true,
+        Attempt.created_at
+    ]
+    form_columns = [
+        Attempt.command,
+        Attempt.user,
+        Attempt.question,
+        Attempt.attempt_type,
+        Attempt.attempt_text,
+        Attempt.is_true
+    ]
+
+    def format_command_link(model, attribute) -> Markup:
+        command = getattr(model, attribute)
+        if command:
+            return Markup(f'<a href="/cms/command/details/{command.id}">{command.name}</a>')
+        return Markup('')
+
+    def format_user_link(model, attribute) -> Markup:
+        user = getattr(model, attribute)
+        if user:
+            return Markup(f'<a href="/cms/user/details/{user.id}">{user.full_name}</a>')
+        return Markup('')
+
+    def format_question_link(model, attribute) -> Markup:
+        question = getattr(model, attribute)
+        if question:
+            return Markup(f'<a href="/cms/question/details/{question.id}">{question.title}</a>')
+        return Markup('')
+
+    def format_attempt_type_link(model, attribute) -> Markup:
+        attempt_type = getattr(model, attribute)
+        if attempt_type:
+            return Markup(f'<a href="/cms/attempttype/details/{attempt_type.id}">{attempt_type.name}</a>')
+        return Markup('')
+
+    column_formatters = {
+        "command": format_command_link,
+        "user": format_user_link,
+        "question": format_question_link,
+        "attempt_type": format_attempt_type_link
+    }
+    column_formatters_detail = {
+        "command": format_command_link,
+        "user": format_user_link,
+        "question": format_question_link,
+        "attempt_type": format_attempt_type_link
     }

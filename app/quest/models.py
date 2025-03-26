@@ -67,5 +67,6 @@ class Attempt(Base):
 
     # Связи
     command: Mapped["Command"] = relationship("Command")
+    user: Mapped["User"] = relationship("User")
     question: Mapped["Question"] = relationship("Question")
     attempt_type: Mapped["AttemptType"] = relationship("AttemptType")

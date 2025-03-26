@@ -1,16 +1,12 @@
 from sqladmin import Admin
 from app.dao.database import engine
-from app.cms.views import BlockAdmin, EventAdmin, UserAdmin, RoleAdmin, CommandAdmin, LanguageAdmin, RoleUserCommandAdmin, QuestionAdmin, AnswerAdmin
+from app.cms import views
 
 def init_admin(app, base_url: str = "/admin"):
     """Инициализация SQLAdmin"""
     admin = Admin(app, engine, base_url=base_url)
-    admin.add_view(UserAdmin)
-    admin.add_view(RoleAdmin)
-    admin.add_view(RoleUserCommandAdmin)
-    admin.add_view(CommandAdmin)
-    admin.add_view(BlockAdmin)
-    admin.add_view(LanguageAdmin)
-    admin.add_view(EventAdmin)
-    admin.add_view(QuestionAdmin)
-    admin.add_view(AnswerAdmin)
+    
+    # Автоматически регистрируем все классы ModelView из views
+    for name, view in vars(views).items():
+        if name.endswith('Admin') and hasattr(view, 'model'):
+            admin.add_view(view)
