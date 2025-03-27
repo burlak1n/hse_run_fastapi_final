@@ -2,16 +2,18 @@ from fastapi import APIRouter, Response, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
+import io
 
 from app.auth.models import User, CommandsUser, Command
-from app.auth.utils import set_tokens
-from app.dependencies.auth_dep import get_current_user
-from app.dependencies.dao_dep import get_session_with_commit
+from app.auth.utils import set_tokens, generate_qr_image
+from app.dependencies.auth_dep import get_access_token, get_current_user
+from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
 from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo
-from fastapi.responses import JSONResponse
-from app.exceptions import InternalServerErrorException
+from fastapi.responses import JSONResponse, StreamingResponse
+from app.exceptions import InternalServerErrorException, TokenExpiredException, UserNotFoundException
 from app.logger import logger
+from app.config import settings
 
 router = APIRouter()
 
@@ -136,6 +138,122 @@ async def get_me(
         commands=commands_info
     )
 
+@router.get("/qr")
+async def get_me_qr_code(
+    user_data: User = Depends(get_current_user),
+    session_token: str = Depends(get_access_token),
+):
+    # Генерация QR-кода с ссылкой на эндпоинт проверки
+    qr_data = generate_qr_image(f"{settings.BASE_URL}/api/auth/qr/verify?token={session_token}")
+    return StreamingResponse(io.BytesIO(qr_data), media_type="image/png")
+
+@router.get("/qr/verify")
+async def verify_qr(
+    token: str,
+    scanner_user: User = Depends(get_current_user),  # Пользователь, который сканирует
+    session: AsyncSession = Depends(get_session_without_commit)
+):
+    """
+    Проверяет валидность сессионного токена.
+    В зависимости от роли пользователя, который сканирует:
+    - guest: добавляет в команду
+    - insider/organizer: возвращает информацию о команде
+    """
+    # Получаем пользователя, чей QR сканируют, через get_current_user
+    try:
+        qr_user = await get_current_user(token, session)
+    except (TokenExpiredException, UserNotFoundException):
+        return {
+            "ok": False,
+            "message": "Недействительный QR-код"
+        }
+    
+    commands_dao = CommandsDAO(session)
+    commands_users_dao = CommandsUsersDAO(session)
+    roles_dao = RolesDAO(session)
+    
+    # Получаем команду пользователя, чей QR сканируют
+    qr_user_command = await commands_dao.find_user_command_in_event(user_id=qr_user.id)
+    if not qr_user_command:
+        return {
+            "ok": False,
+            "message": "Пользователь не состоит в команде"
+        }
+    
+    # Проверяем, что qr_user является капитаном команды
+    qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
+    if qr_user_role != "captain":
+        return {
+            "ok": False,
+            "message": "Пользователь не является капитаном команды"
+        }
+    
+    # Обработка в зависимости от роли сканирующего
+    if scanner_user.role.name == "guest":
+        # Проверяем, не состоит ли уже пользователь в команде
+        scanner_user_command = await commands_dao.find_user_command_in_event(user_id=scanner_user.id)
+        if scanner_user_command:
+            return {
+                "ok": False,
+                "message": "Вы уже состоите в другой команде"
+            }
+        
+        # Проверяем, не состоит ли пользователь уже в этой команде
+        if any(cu.user_id == scanner_user.id for cu in qr_user_command.users):
+            return {
+                "ok": False,
+                "message": "Вы уже состоите в этой команде"
+            }
+        
+        # Проверяем максимальное количество участников
+        if len(qr_user_command.users) >= 6:
+            return {
+                "ok": False,
+                "message": "В команде уже максимальное количество участников"
+            }
+        
+        # Получаем ID роли участника
+        participant_role = await roles_dao.find_one_or_none(filters={"name": "participant"})
+        if not participant_role:
+            raise InternalServerErrorException(detail="Роль участника не найдена")
+        
+        # Добавляем пользователя в команду
+        await commands_users_dao.add(CommandsUserBase(
+            command_id=qr_user_command.id,
+            user_id=scanner_user.id,
+            role_id=participant_role.id
+        ))
+        
+        return {
+            "ok": True,
+            "message": "Вы успешно добавлены в команду"
+        }
+    
+    # Для insider и organizer возвращаем информацию о команде
+    elif scanner_user.role.name in ["insider", "organizer"]:
+        return {
+            "ok": True,
+            "command": {
+                "id": qr_user_command.id,
+                "name": qr_user_command.name,
+                "event_id": qr_user_command.event_id,
+                "participants": [
+                    {
+                        "id": cu.user.id,
+                        "full_name": cu.user.full_name,
+                        "role": cu.role.name
+                    }
+                    for cu in qr_user_command.users
+                ]
+            }
+        }
+    
+    # Для других ролей возвращаем ошибку
+    return {
+        "ok": False,
+        "message": "Ваша роль не позволяет выполнить это действие"
+    }
+
 @router.get("/command")
 async def command_create(
     session: AsyncSession = Depends(get_session_with_commit),
@@ -199,3 +317,4 @@ async def command_create(
 # @router.post("command/get_link")
 
 # @router.post("command/handle_link") ???
+

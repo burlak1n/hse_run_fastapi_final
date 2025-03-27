@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from fastapi import Request, Depends
-from jose import jwt, JWTError, ExpiredSignatureError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dao import UsersDAO

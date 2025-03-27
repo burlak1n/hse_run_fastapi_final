@@ -13,7 +13,17 @@
         <div class="team-stats">
             <span>Счёт: <span id="team-score">0</span></span>
             <span>Монеты: <span id="team-coins">0</span></span>
+            <button onclick="showQR()" style="margin-left: 20px;">Мой QR-код</button>
         </div>
+
+        <!-- Модальное окно для QR-кода -->
+        <div id="qr-modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8);">
+            <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; text-align: center;">
+                <img id="qr-image" src="" alt="QR Code" style="max-width: 300px;">
+                <button onclick="closeQR()" style="margin-top: 20px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Закрыть</button>
+            </div>
+        </div>
+
         <h2>Квест</h2>
         <div id="blocks-container" class="blocks-grid"></div>
     </div>
@@ -45,6 +55,25 @@
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') fetchUserData();
         });
+
+        async function showQR() {
+            try {
+                const response = await fetch('/api/auth/qr');
+                if (!response.ok) throw new Error('Ошибка загрузки QR-кода');
+                
+                const blob = await response.blob();
+                const objectURL = URL.createObjectURL(blob);
+                
+                document.getElementById('qr-image').src = objectURL;
+                document.getElementById('qr-modal').style.display = 'block';
+            } catch (error) {
+                alert('Ошибка при загрузке QR-кода');
+            }
+        }
+
+        function closeQR() {
+            document.getElementById('qr-modal').style.display = 'none';
+        }
 
         fetchUserData();
     </script>

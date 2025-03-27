@@ -14,6 +14,10 @@
         <h2>Профиль</h2>
         <div id="user-info" hidden>
             <p>ФИО: <span id="full_name"></span></p>
+            <div id="qr-code-container" hidden>
+                <h3>Ваш QR-код</h3>
+                <img id="qr-code-img" alt="QR Code" style="width: 200px; height: 200px;">
+            </div>
             <div id="team-info" hidden>
                 <h3>Ваша команда</h3>
                 <p><span id="team-name-info"></span></p>
@@ -44,6 +48,15 @@
                 
                 setText('full_name', full_name);
                 show('user-info');
+
+                // Загрузка QR-кода
+                const qrRes = await fetch('/api/auth/qr');
+                if (qrRes.ok) {
+                    const blob = await qrRes.blob();
+                    const url = URL.createObjectURL(blob);
+                    el('qr-code-img').src = url;
+                    show('qr-code-container');
+                }
 
                 if (commands?.length) {
                     const team = commands[0];
