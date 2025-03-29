@@ -30,6 +30,7 @@
         height: 8px;
         background-color: #e0e0e0;
         border-radius: 4px;
+        margin-bottom: 3px;
     }
 
     .progress-bar {
@@ -76,9 +77,17 @@
                 <div class="block" style="${b.progress === 100 ? 'background-color: #e8f5e9; border: 1px solid #c8e6c9;' : ''}">
                     <button onclick="startBlock(${b.id})">${b.title}</button>
                     <div class="progress-container">
-                        <div class="progress-bar" style="width: ${b.progress || 0}%"></div>
+                        <div class="progress-bar" style="width: ${b.progress || 0}%; background-color: #2196f3;"></div>
                     </div>
-                    <div class="progress-text">${b.progress || 0}% (${b.solved_count || 0}/${b.total_count || 0})</div>
+                    <div class="progress-text">
+                        ${b.progress || 0}% (${b.solved_count || 0}/${b.total_count || 0})
+                    </div>
+                    <div class="progress-container" style="margin-top: 5px;">
+                        <div class="progress-bar" style="width: ${(b.insider_count / b.total_count) * 100 || 0}%; background-color: #f44336;"></div>
+                    </div>
+                    <div class="progress-text" style="color: #f44336;">
+                        Посещено: ${b.insider_count || 0}/${b.total_count || 0}
+                    </div>
                 </div>
             `).join('');
         };

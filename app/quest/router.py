@@ -47,6 +47,19 @@ async def get_total_riddles_count(block_id: int, session: AsyncSession) -> int:
     )
     return len(result.scalars().all())
 
+async def get_insider_riddles_count(block_id: int, command_id: int, session: AsyncSession) -> int:
+    """Получает количество загадок, на которые приехали (insider или insider_hint)"""
+    result = await session.execute(
+        select(Attempt)
+        .join(Question, Question.id == Attempt.question_id)
+        .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+        .where(Question.block_id == block_id)
+        .where(Attempt.command_id == command_id)
+        .where(Attempt.is_true == True)
+        .where(AttemptType.name.in_(["insider", "insider_hint"]))
+    )
+    return len(result.scalars().all())
+
 async def build_block_response(block, team_stats, command, include_riddles=False, session=None) -> dict:
     """Создание структуры ответа для блока"""
     response = {
@@ -60,8 +73,10 @@ async def build_block_response(block, team_stats, command, include_riddles=False
         # Используем переданную команду
         solved = await get_solved_riddles_count(block.id, command.id, session)
         total = await get_total_riddles_count(block.id, session)
+        insider = await get_insider_riddles_count(block.id, command.id, session)
         response['solved_count'] = solved
         response['total_count'] = total
+        response['insider_count'] = insider
         response['progress'] = round((solved / total) * 100) if total > 0 else 0
     return response
 
