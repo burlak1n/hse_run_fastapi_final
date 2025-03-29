@@ -54,6 +54,8 @@ class AttemptType(Base):
     score: Mapped[int]
     money: Mapped[int]
     is_active: Mapped[bool] = mapped_column(default=True)
+    def __repr__(self):
+        return f"{self.name}"
 
 class Attempt(Base):
     """Попытки / Транзакции пользователей"""

@@ -39,10 +39,13 @@
         // Оптимизированная функция создания HTML загадки
         const createRiddleHTML = (r, index, isAnswered) => {
             const bgColor = index % 2 === 0 ? '#f0f0f0' : '#e0e0e0';
-            const { title: riddleTitle = 'Загадка', geo_answered, text_answered, image_path_answered, image_path, id } = r;
+            const { title: riddleTitle = 'Загадка', geo_answered, text_answered, image_path_answered, image_path, id, has_insider_attempt } = r;
+            
+            // Изменяем цвет рамки на зелёный, если была insider-попытка
+            const insiderStyle = has_insider_attempt ? 'border: 2px solid #4caf50;' : '';
             
             return `
-                <div class="riddle" style="background-color: ${bgColor}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center;">
+                <div class="riddle" style="background-color: ${bgColor}; padding: 20px; margin: 10px auto; border-radius: 8px; max-width: 600px; text-align: center; ${insiderStyle}">
                     <h3>${riddleTitle}</h3>
                     ${isAnswered ? `
                         ${geo_answered ? `<p>${geo_answered}</p>` : ''}
@@ -58,6 +61,7 @@
                             <button type="submit">Проверить ответ</button>
                         </form>
                     `}
+                    ${has_insider_attempt ? '<div style="color: #4caf50; margin-top: 10px;">Отсканировано инсайдером</div>' : ''}
                 </div>
             `;
         };

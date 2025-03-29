@@ -10,7 +10,7 @@ from app.dependencies.dao_dep import get_session_with_commit
 from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO
 from app.logger import logger
 from app.quest.schemas import BlockFilter, FindAnswersForQuestion, FindQuestionsForBlock
-from app.quest.models import Attempt, AttemptType
+from app.quest.models import Attempt, AttemptType, Question
 from sqlalchemy import select
 
 router = APIRouter()
@@ -22,9 +22,32 @@ async def get_team_stats(user: User, session: AsyncSession) -> dict:
     if not command:
         logger.error(f"Пользователь {user.id} не состоит ни в одной команде")
         return None
-    return await calculate_team_score_and_coins(command.id, session)
+    stats = await calculate_team_score_and_coins(command.id, session)
+    stats['user_id'] = user.id  # Добавляем ID пользователя
+    return stats
 
-async def build_block_response(block, team_stats, include_riddles=False, session=None) -> dict:
+async def get_solved_riddles_count(block_id: int, command_id: int, session: AsyncSession) -> int:
+    """Получает количество решённых загадок в блоке для команды, учитывая только попытки типа question или question_hint"""
+    result = await session.execute(
+        select(Attempt)
+        .join(Question, Question.id == Attempt.question_id)
+        .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+        .where(Question.block_id == block_id)
+        .where(Attempt.command_id == command_id)
+        .where(Attempt.is_true == True)
+        .where(AttemptType.name.in_(["question", "question_hint"]))
+    )
+    return len(result.scalars().all())
+
+async def get_total_riddles_count(block_id: int, session: AsyncSession) -> int:
+    """Получает общее количество загадок в блоке"""
+    result = await session.execute(
+        select(Question)
+        .where(Question.block_id == block_id)
+    )
+    return len(result.scalars().all())
+
+async def build_block_response(block, team_stats, command, include_riddles=False, session=None) -> dict:
     """Создание структуры ответа для блока"""
     response = {
         "id": block.id,
@@ -32,7 +55,14 @@ async def build_block_response(block, team_stats, include_riddles=False, session
         "language_id": block.language_id
     }
     if include_riddles:
-        response['riddles'] = await get_riddles_for_block(block.id, session)
+        response['riddles'] = await get_riddles_for_block(block.id, session, command.id)
+    else:
+        # Используем переданную команду
+        solved = await get_solved_riddles_count(block.id, command.id, session)
+        total = await get_total_riddles_count(block.id, session)
+        response['solved_count'] = solved
+        response['total_count'] = total
+        response['progress'] = round((solved / total) * 100) if total > 0 else 0
     return response
 
 @router.get("/")
@@ -49,8 +79,16 @@ async def get_all_quest_blocks(
             status_code=400
         )
 
+    # Получаем команду один раз
+    users_dao = UsersDAO(session)
+    command = await users_dao.find_user_command_in_event(user.id)
+    if not command:
+        return JSONResponse(
+            content={"ok": False, "message": "User is not in any command"},
+            status_code=400
+        )
+
     blocks_dao = BlocksDAO(session)
-    command = await UsersDAO(session).find_user_command_in_event(user.id)
     blocks = await blocks_dao.find_all(filters=BlockFilter(language_id=command.language_id))
 
     response_data = {
@@ -58,7 +96,7 @@ async def get_all_quest_blocks(
         "message": "Blocks load successful",
         "team_score": team_stats["score"],
         "team_coins": team_stats["coins"],
-        "blocks": [await build_block_response(block, team_stats, include_riddles, session) for block in blocks]
+        "blocks": [await build_block_response(block, team_stats, command, include_riddles, session) for block in blocks]
     }
 
     return JSONResponse(content=response_data)
@@ -98,42 +136,56 @@ async def get_quest_block(
         "message": "Block loaded successfully",
         "team_score": team_stats["score"],
         "team_coins": team_stats["coins"],
-        "block": await build_block_response(block, team_stats, True, session)
+        "block": await build_block_response(block, team_stats, command, True, session)
     }
 
     return JSONResponse(content=response_data)
 
-async def get_riddle_data(question, solved: bool) -> dict:
-    """Формирует данные загадки в зависимости от того, решена она или нет"""
+async def get_riddle_data(question, solved: bool, session: AsyncSession, command_id: int) -> dict:
+    """Формирует данные загадки с учётом insider-попыток"""
     if solved:
+        # Проверяем наличие успешных insider-попыток только для решённых загадок
+        insider_attempt = await session.execute(
+            select(Attempt)
+            .join(AttemptType)
+            .where(Attempt.command_id == command_id)
+            .where(Attempt.question_id == question.id)
+            .where(Attempt.is_true == True)
+            .where(AttemptType.name.in_(["insider", "insider_hint"]))
+        )
+        has_insider_attempt = insider_attempt.scalar_one_or_none() is not None
+
         return {
             "id": question.id,
             "title": question.title,
             "text_answered": question.text_answered,
             "image_path_answered": question.image_path_answered,
-            "geo_answered": question.geo_answered
+            "geo_answered": question.geo_answered,
+            "has_insider_attempt": has_insider_attempt
         }
     return {
         "id": question.id,
         "image_path": question.image_path
     }
 
-async def get_riddles_for_block(block_id: int, session: AsyncSession) -> list:
+async def get_riddles_for_block(block_id: int, session: AsyncSession, command_id: int) -> list:
     """
-    Получает список вопросов для указанного блока
+    Получает список вопросов для указанного блока с учётом insider-попыток
     """
     questions_dao = QuestionsDAO(session)
     questions = await questions_dao.find_all(filters=FindQuestionsForBlock(block_id=block_id))
     
     result = []
     for question in questions:
+        # Используем scalar() вместо scalar_one_or_none(), так как нас интересует наличие хотя бы одной успешной попытки
         solved_attempt = await session.execute(
             select(Attempt)
             .where(Attempt.question_id == question.id)
             .where(Attempt.is_true == True)
+            .limit(1)  # Ограничиваем результат одной записью
         )
-        solved = solved_attempt.scalar_one_or_none() is not None
-        result.append(await get_riddle_data(question, solved))
+        solved = solved_attempt.scalar() is not None
+        result.append(await get_riddle_data(question, solved, session, command_id))
     
     return result
 
@@ -216,7 +268,7 @@ async def check_answer(
         return JSONResponse(content={
             "ok": True,
             "isCorrect": is_correct,
-            "updatedRiddle": await get_riddle_data(question, is_correct) if is_correct else None,
+            "updatedRiddle": await get_riddle_data(question, is_correct, session, command.id) if is_correct else None,
             "team_score": team_stats["score"],
             "team_coins": team_stats["coins"]
         })
