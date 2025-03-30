@@ -352,6 +352,17 @@ async def get_hint(
     try:
         logger.info(f"Запрос подсказки. Пользователь: {user.id}, Загадка: {riddle_id}")
         
+        # Получаем тип попытки для подсказки
+        attempt_type = await session.execute(
+            select(AttemptType).where(AttemptType.name == "hint")
+        )
+        attempt_type = attempt_type.scalar_one_or_none()
+        if not attempt_type:
+            return JSONResponse(
+                content={"ok": False, "message": "Тип попытки для подсказки не найден"},
+                status_code=404
+            )
+        
         # Получаем загадку
         questions_dao = QuestionsDAO(session)
         question = await questions_dao.find_one_or_none_by_id(riddle_id)
@@ -376,7 +387,7 @@ async def get_hint(
                 content={"ok": False, "message": "Пользователь не состоит ни в одной команде"},
                 status_code=400
             )
-
+        
         # Проверяем, запрашивал ли уже кто-то из команды подсказку для этой загадки
         existing_hint_attempt = await session.execute(
             select(Attempt)
@@ -395,16 +406,13 @@ async def get_hint(
                 "team_score": team_stats["score"],
                 "team_coins": team_stats["coins"]
             })
-        
-        # Получаем тип попытки для подсказки
-        attempt_type = await session.execute(
-            select(AttemptType).where(AttemptType.name == "hint")
-        )
-        attempt_type = attempt_type.scalar_one_or_none()
-        if not attempt_type:
+            
+        # Проверяем баланс команды
+        team_stats = await calculate_team_score_and_coins(command.id, session)
+        if team_stats["coins"] < abs(attempt_type.money):
             return JSONResponse(
-                content={"ok": False, "message": "Тип попытки для подсказки не найден"},
-                status_code=404
+                content={"ok": False, "message": "Недостаточно монет для получения подсказки"},
+                status_code=400
             )
         
         # Создаем попытку запроса подсказки
@@ -419,7 +427,7 @@ async def get_hint(
         session.add(attempt)
         await session.commit()
         
-        # Обновляем и возвращаем статистику команды
+        # Обновляем и возвращаем статистику команда
         team_stats = await calculate_team_score_and_coins(command.id, session)
         return JSONResponse(content={
             "ok": True,

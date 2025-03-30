@@ -145,11 +145,10 @@
                                 ${has_hint ? 'Показать/скрыть подсказку' : 'Получить подсказку'}
                             </button>
                         </div>
-                        ${has_hint ? `
-                            <div id="hint-container-${id}" style="display: none; margin-bottom: 20px;">
-                                ${createFileHTML(r.hint, '300px', 'border: 2px dashed #2196f3; padding: 10px;')}
-                            </div>
-                        ` : ''}
+                        <div id="hint-container-${id}" style="display: none; margin-bottom: 20px;">
+                            ${has_hint ? createFileHTML(r.hint, '300px', 'border: 2px dashed #2196f3; padding: 10px;') : ''}
+                        </div>
+                        <div id="hint-error-${id}" style="display: none; color: red; padding: 10px; border: 1px solid red; border-radius: 4px; margin-bottom: 20px;"></div>
                         <form onsubmit="handleRiddleSubmit(event, this, '${id}')" style="margin-top: 20px;">
                             <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
                             <button type="submit">Проверить ответ</button>
@@ -216,7 +215,11 @@
             
             try {
                 const response = await fetch(`/api/quest/hint/${riddleId}`);
-                if (!response.ok) throw new Error('Ошибка запроса подсказки');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    // Используем сообщение об ошибке от сервера
+                    throw new Error(errorData.message || 'Ошибка запроса подсказки');
+                }
                 
                 const data = await response.json();
                 
@@ -236,10 +239,25 @@
                         hintContainer.style.display = 'block';
                     }
                 } else {
-                    alert('Подсказка недоступна');
+                    showHintError(riddleId, 'Подсказка недоступна');
                 }
             } catch (error) {
-                handleError('Ошибка при запросе подсказки');
+                showHintError(riddleId, error.message);
+            }
+        }
+
+        function showHintError(riddleId, message) {
+            const errorContainer = document.getElementById(`hint-error-${riddleId}`);
+            if (errorContainer) {
+                errorContainer.textContent = message;
+                errorContainer.style.display = 'block';
+                
+                // Автоматически скрываем ошибку через 5 секунд
+                setTimeout(() => {
+                    errorContainer.style.display = 'none';
+                }, 5000);
+            } else {
+                alert(message); // Fallback
             }
         }
 
