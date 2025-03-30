@@ -26,6 +26,7 @@ class Question(Base):
     geo_answered: Mapped[str]
     text_answered: Mapped[str]
     image_path_answered: Mapped[Optional[str]] = mapped_column(nullable=True)
+    hint_path: Mapped[Optional[str]] = mapped_column(nullable=True)  # Путь к подсказке
 
     # Связь с блоком
     block: Mapped["Block"] = relationship("Block", back_populates="questions")

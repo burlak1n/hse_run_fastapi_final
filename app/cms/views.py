@@ -67,7 +67,8 @@ class QuestionAdmin(ModelView, model=Question):
         Question.image_path,
         Question.geo_answered,
         Question.text_answered,
-        Question.image_path_answered
+        Question.image_path_answered,
+        Question.hint_path
     ]
 
     form_columns = [
@@ -76,11 +77,13 @@ class QuestionAdmin(ModelView, model=Question):
         Question.image_path,
         Question.geo_answered,
         Question.text_answered,
-        Question.image_path_answered
+        Question.image_path_answered,
+        Question.hint_path
     ]
     form_overrides = {
         'image_path': FileField,
-        'image_path_answered': FileField
+        'image_path_answered': FileField,
+        'hint_path': FileField
     }
 
     def format_image_url(model, attribute) -> Markup:
@@ -95,53 +98,103 @@ class QuestionAdmin(ModelView, model=Question):
             return Markup(f'<a href="/cms/block/details/{block.id}">{block.title}</a>')
         return Markup('')
 
+    def format_hint_link(model, attribute) -> Markup:
+        hint_path = getattr(model, attribute)
+        if hint_path:
+            return Markup(f'<a href="/static/img/{hint_path}" target="_blank">Посмотреть подсказку</a>')
+        return Markup('')
+
     column_formatters = {
         "block": format_block_link,
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
+        "hint_path": format_hint_link
     }
     column_formatters_detail = {
         "block": format_block_link,
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
+        "hint_path": format_hint_link
     }
 
     async def on_model_change(self, data: dict, model: Any, is_created: bool, request: Request) -> None:
         if 'image_path' in data:
             file = data['image_path']
-            if hasattr(file, 'filename') and hasattr(file, 'read'):
+            if hasattr(file, 'filename') and hasattr(file, 'read') and file.filename:
+                # Убедимся, что директория существует
+                img_dir = Path("app/static/img")
+                img_dir.mkdir(parents=True, exist_ok=True)
+                
                 # Удаляем старый файл, если он существует
                 if model.image_path:
-                    old_file_path = Path("app/static/img") / model.image_path
+                    old_file_path = img_dir / model.image_path
                     if old_file_path.exists():
                         os.remove(old_file_path)
                 
                 file_content = await file.read()
-                file_path = Path("app/static/img") / file.filename
+                file_path = img_dir / file.filename
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 # Сохраняем только имя файла в базу данных
                 data['image_path'] = file.filename
             else:
-                data['image_path'] = file
+                # Если файл не загружен, устанавливаем None вместо объекта UploadFile
+                if not is_created and model.image_path:  # Для редактирования - сохраняем текущее значение
+                    data['image_path'] = model.image_path
+                else:
+                    data['image_path'] = None  # Для создания - устанавливаем None
 
         if 'image_path_answered' in data:
             file = data['image_path_answered']
-            if hasattr(file, 'filename') and hasattr(file, 'read'):
+            if hasattr(file, 'filename') and hasattr(file, 'read') and file.filename:
+                # Убедимся, что директория существует
+                img_dir = Path("app/static/img")
+                img_dir.mkdir(parents=True, exist_ok=True)
+                
                 # Удаляем старый файл, если он существует
                 if model.image_path_answered:
-                    old_file_path = Path("app/static/img") / model.image_path_answered
+                    old_file_path = img_dir / model.image_path_answered
                     if old_file_path.exists():
                         os.remove(old_file_path)
                 
                 file_content = await file.read()
-                file_path = Path("app/static/img") / file.filename
+                file_path = img_dir / file.filename
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 # Сохраняем только имя файла в базу данных
                 data['image_path_answered'] = file.filename
             else:
-                data['image_path_answered'] = file
+                # Если файл не загружен, устанавливаем None вместо объекта UploadFile
+                if not is_created and model.image_path_answered:  # Для редактирования - сохраняем текущее значение
+                    data['image_path_answered'] = model.image_path_answered
+                else:
+                    data['image_path_answered'] = None  # Для создания - устанавливаем None
+
+        if 'hint_path' in data:
+            file = data['hint_path']
+            if hasattr(file, 'filename') and hasattr(file, 'read') and file.filename:
+                # Убедимся, что директория существует
+                img_dir = Path("app/static/img")
+                img_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Удаляем старый файл, если он существует
+                if model.hint_path:
+                    old_file_path = img_dir / model.hint_path
+                    if old_file_path.exists():
+                        os.remove(old_file_path)
+                
+                file_content = await file.read()
+                file_path = img_dir / file.filename
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                # Сохраняем только имя файла в базу данных
+                data['hint_path'] = file.filename
+            else:
+                # Если файл не загружен, устанавливаем None вместо объекта UploadFile
+                if not is_created and model.hint_path:  # Для редактирования - сохраняем текущее значение
+                    data['hint_path'] = model.hint_path
+                else:
+                    data['hint_path'] = None  # Для создания - устанавливаем None
 
         return await super().on_model_change(data, model, is_created, request)
 
@@ -156,6 +209,12 @@ class QuestionAdmin(ModelView, model=Question):
         # Удаляем файл image_path_answered, если он существует
         if model.image_path_answered:
             file_path = Path("app/static/img") / model.image_path_answered
+            if file_path.exists():
+                os.remove(file_path)
+
+        # Удаляем файл hint_path, если он существует
+        if model.hint_path:
+            file_path = Path("app/static/img") / model.hint_path
             if file_path.exists():
                 os.remove(file_path)
 

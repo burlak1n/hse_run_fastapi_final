@@ -39,7 +39,7 @@
         // Оптимизированная функция создания HTML загадки
         const createRiddleHTML = (r, index, isAnswered) => {
             const bgColor = index % 2 === 0 ? '#f0f0f0' : '#e0e0e0';
-            const { title: riddleTitle = 'Загадка', geo_answered, text_answered, image_path_answered, image_path, id, has_insider_attempt } = r;
+            const { title: riddleTitle = 'Загадка', geo_answered, text_answered, image_path_answered, image_path, id, has_insider_attempt, has_hint } = r;
             
             // Изменяем цвет рамки на зелёный, если была insider-попытка
             const insiderStyle = has_insider_attempt ? 'border: 2px solid #4caf50;' : '';
@@ -54,14 +54,26 @@
                     ` : `
                         ${image_path ? `<img src="/static/img/${image_path}" style="max-width: 300px; display: block; margin: 0 auto 20px;">` : ''}
                         <div style="margin-bottom: 20px;">
-                            <button onclick="requestHint('${id}')">Подсказка</button>
+                            <button 
+                                onclick="toggleHint('${id}', '${has_hint ? r.hint : ''}')" 
+                                ${has_hint ? 'style="background-color: #4caf50;"' : ''}
+                                id="hint-button-${id}"
+                            >
+                                ${has_hint ? 'Показать/скрыть подсказку' : 'Получить подсказку'}
+                            </button>
                         </div>
+                        ${has_hint ? `
+                            <div id="hint-container-${id}" style="display: none; margin-bottom: 20px;">
+                                <img src="/static/img/${r.hint}" style="max-width: 300px; border: 2px dashed #2196f3; padding: 10px;">
+                            </div>
+                        ` : ''}
                         <form onsubmit="handleRiddleSubmit(event, this, '${id}')" style="margin-top: 20px;">
                             <input placeholder="Введите ваш ответ" required style="padding: 8px; margin-right: 10px;">
                             <button type="submit">Проверить ответ</button>
                         </form>
                     `}
                     ${has_insider_attempt ? '<div style="color: #4caf50; margin-top: 10px;">Отсканировано инсайдером</div>' : ''}
+                    ${has_hint && !isAnswered ? '<div style="color: #2196f3; margin-top: 10px;">Подсказка запрошена</div>' : ''}
                 </div>
             `;
         };
@@ -123,8 +135,26 @@
                 const response = await fetch(`/api/quest/hint/${riddleId}`);
                 if (!response.ok) throw new Error('Ошибка запроса подсказки');
                 
-                const { hint } = await response.json();
-                alert(`Подсказка: ${hint}`);
+                const data = await response.json();
+                
+                if (data.hint) {
+                    // Обновляем счёт и монеты, если они предоставлены
+                    if (data.team_score !== null && data.team_coins !== null) {
+                        document.getElementById('team-score').textContent = data.team_score;
+                        document.getElementById('team-coins').textContent = data.team_coins;
+                    }
+                    
+                    // Перезагружаем блок для обновления UI
+                    await loadBlock();
+                    
+                    // Показываем подсказку после перезагрузки блока
+                    const hintContainer = document.getElementById(`hint-container-${riddleId}`);
+                    if (hintContainer) {
+                        hintContainer.style.display = 'block';
+                    }
+                } else {
+                    alert('Подсказка недоступна');
+                }
             } catch (error) {
                 handleError('Ошибка при запросе подсказки');
             }
@@ -147,6 +177,21 @@
 
         function closeQR() {
             document.getElementById('qr-modal').style.display = 'none';
+        }
+
+        // Функция для переключения видимости подсказки
+        function toggleHint(riddleId, hintPath) {
+            // Если подсказка еще не запрошена, запрашиваем ее
+            if (!hintPath) {
+                requestHint(riddleId);
+                return;
+            }
+            
+            // Если подсказка уже запрошена, переключаем ее видимость
+            const hintContainer = document.getElementById(`hint-container-${riddleId}`);
+            if (hintContainer) {
+                hintContainer.style.display = hintContainer.style.display === 'none' ? 'block' : 'none';
+            }
         }
 
         loadBlock();

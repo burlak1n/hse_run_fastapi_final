@@ -170,17 +170,45 @@ async def get_riddle_data(question, solved: bool, session: AsyncSession, command
         )
         has_insider_attempt = insider_attempt.scalar_one_or_none() is not None
 
+        # Проверяем, запрашивал ли команда подсказку для этой загадки
+        hint_attempt = await session.execute(
+            select(Attempt)
+            .join(AttemptType)
+            .where(Attempt.command_id == command_id)
+            .where(Attempt.question_id == question.id)
+            .where(Attempt.is_true == True)
+            .where(AttemptType.name == "hint")
+        )
+        has_hint = hint_attempt.scalar_one_or_none() is not None
+
         return {
             "id": question.id,
             "title": question.title,
             "text_answered": question.text_answered,
             "image_path_answered": question.image_path_answered,
             "geo_answered": question.geo_answered,
-            "has_insider_attempt": has_insider_attempt
+            "has_insider_attempt": has_insider_attempt,
+            "has_hint": has_hint and question.hint_path is not None,
+            "hint": question.hint_path if has_hint else None
         }
+    
+    # Если загадка не решена, проверяем, доступна ли подсказка
+    hint_attempt = await session.execute(
+        select(Attempt)
+        .join(AttemptType)
+        .where(Attempt.command_id == command_id)
+        .where(Attempt.question_id == question.id)
+        .where(Attempt.is_true == True)
+        .where(AttemptType.name == "hint")
+    )
+    has_hint = hint_attempt.scalar_one_or_none() is not None
+    
     return {
         "id": question.id,
-        "image_path": question.image_path
+        "title": question.title,
+        "image_path": question.image_path,
+        "has_hint": has_hint and question.hint_path is not None,
+        "hint": question.hint_path if has_hint else None
     }
 
 async def get_riddles_for_block(block_id: int, session: AsyncSession, command_id: int) -> list:
@@ -192,12 +220,14 @@ async def get_riddles_for_block(block_id: int, session: AsyncSession, command_id
     
     result = []
     for question in questions:
-        # Используем scalar() вместо scalar_one_or_none(), так как нас интересует наличие хотя бы одной успешной попытки
+        # Проверяем наличие успешной попытки с ответом типа "question"
         solved_attempt = await session.execute(
             select(Attempt)
+            .join(AttemptType)
             .where(Attempt.question_id == question.id)
+            .where(Attempt.command_id == command_id)
             .where(Attempt.is_true == True)
-            .limit(1)  # Ограничиваем результат одной записью
+            .where(AttemptType.name == "question")
         )
         solved = solved_attempt.scalar() is not None
         result.append(await get_riddle_data(question, solved, session, command_id))
@@ -292,6 +322,101 @@ async def check_answer(
         logger.error(f"Ошибка при проверке ответа. Пользователь: {user.id}, Загадка: {riddle_id}, Ошибка: {str(e)}", exc_info=True)
         return JSONResponse(
             content={"ok": False, "message": "Internal server error"},
+            status_code=500
+        )
+
+@router.get("/hint/{riddle_id}")
+async def get_hint(
+    riddle_id: int,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(get_current_user)
+):
+    """
+    Получает подсказку для загадки, учитывая баллы и монеты команды
+    """
+    try:
+        logger.info(f"Запрос подсказки. Пользователь: {user.id}, Загадка: {riddle_id}")
+        
+        # Получаем загадку
+        questions_dao = QuestionsDAO(session)
+        question = await questions_dao.find_one_or_none_by_id(riddle_id)
+        if not question:
+            return JSONResponse(
+                content={"ok": False, "message": "Загадка не найдена"},
+                status_code=404
+            )
+        
+        # Проверяем наличие подсказки
+        if not question.hint_path:
+            return JSONResponse(
+                content={"ok": False, "message": "Подсказка недоступна для этой загадки"},
+                status_code=404
+            )
+        
+        # Проверяем команду пользователя
+        users_dao = UsersDAO(session)
+        command = await users_dao.find_user_command_in_event(user.id)
+        if not command:
+            return JSONResponse(
+                content={"ok": False, "message": "Пользователь не состоит ни в одной команде"},
+                status_code=400
+            )
+
+        # Проверяем, запрашивал ли уже кто-то из команды подсказку для этой загадки
+        existing_hint_attempt = await session.execute(
+            select(Attempt)
+            .join(AttemptType)
+            .where(Attempt.command_id == command.id)
+            .where(Attempt.question_id == question.id)
+            .where(AttemptType.name == "hint")
+        )
+        
+        # Если уже запрашивали подсказку, возвращаем её без создания новой попытки
+        if existing_hint_attempt.scalar_one_or_none():
+            team_stats = await calculate_team_score_and_coins(command.id, session)
+            return JSONResponse(content={
+                "ok": True,
+                "hint": question.hint_path,
+                "team_score": team_stats["score"],
+                "team_coins": team_stats["coins"]
+            })
+        
+        # Получаем тип попытки для подсказки
+        attempt_type = await session.execute(
+            select(AttemptType).where(AttemptType.name == "hint")
+        )
+        attempt_type = attempt_type.scalar_one_or_none()
+        if not attempt_type:
+            return JSONResponse(
+                content={"ok": False, "message": "Тип попытки для подсказки не найден"},
+                status_code=404
+            )
+        
+        # Создаем попытку запроса подсказки
+        attempt = Attempt(
+            user_id=user.id,
+            command_id=command.id,
+            question_id=question.id,
+            attempt_type_id=attempt_type.id,
+            attempt_text="hint_request",
+            is_true=True  # Всегда успешная попытка
+        )
+        session.add(attempt)
+        await session.commit()
+        
+        # Обновляем и возвращаем статистику команды
+        team_stats = await calculate_team_score_and_coins(command.id, session)
+        return JSONResponse(content={
+            "ok": True,
+            "hint": question.hint_path,
+            "team_score": team_stats["score"],
+            "team_coins": team_stats["coins"]
+        })
+        
+    except Exception as e:
+        logger.error(f"Ошибка при запросе подсказки. Пользователь: {user.id}, Загадка: {riddle_id}, Ошибка: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"ok": False, "message": "Внутренняя ошибка сервера"},
             status_code=500
         )
 
