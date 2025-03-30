@@ -267,9 +267,11 @@ async def check_answer(
         # Проверяем существующую попытку
         existing_attempt = await session.execute(
             select(Attempt)
+            .join(AttemptType)
             .where(Attempt.command_id == command.id)
             .where(Attempt.question_id == question.id)
             .where(Attempt.is_true == True)
+            .where(AttemptType.name.in_(["question", "question_hint"]))
         )
         if existing_attempt.scalar_one_or_none():
             return JSONResponse(
@@ -287,8 +289,21 @@ async def check_answer(
         is_correct = any(user_answer == normalize_text(answer.answer_text) for answer in answers)
         
         # Создаем попытку
+        # Проверяем наличие успешной попытки с подсказкой
+        hint_attempt = await session.execute(
+            select(Attempt)
+            .join(AttemptType)
+            .where(Attempt.command_id == command.id)
+            .where(Attempt.question_id == question.id)
+            .where(Attempt.is_true == True)
+            .where(AttemptType.name == "hint")
+        )
+        has_hint = hint_attempt.scalar_one_or_none() is not None
+
+        # Определяем тип попытки в зависимости от наличия подсказки
+        attempt_type_name = "question_hint" if has_hint else "question"
         attempt_type = await session.execute(
-            select(AttemptType).where(AttemptType.name == "question")
+            select(AttemptType).where(AttemptType.name == attempt_type_name)
         )
         attempt_type = attempt_type.scalar_one_or_none()
         if not attempt_type:
