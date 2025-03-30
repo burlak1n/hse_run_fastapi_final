@@ -13,6 +13,8 @@ from app.quest.schemas import BlockFilter, FindAnswersForQuestion, FindQuestions
 from app.quest.models import Attempt, AttemptType, Question
 from sqlalchemy import select
 
+from app.quest.utils import compare_strings
+
 router = APIRouter()
 
 async def get_team_stats(user: User, session: AsyncSession) -> dict:
@@ -279,14 +281,11 @@ async def check_answer(
                 status_code=400
             )
         
-        # Проверяем ответ
-        def normalize_text(text: str) -> str:
-            return ''.join(c for c in text.lower() if c.isalnum())
-
-        user_answer = normalize_text(answer_data.get('answer', ''))
+        
+        user_answer = answer_data.get('answer', '')
         answers_dao = AnswersDAO(session)
         answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id=riddle_id))
-        is_correct = any(user_answer == normalize_text(answer.answer_text) for answer in answers)
+        is_correct = any(compare_strings(user_answer, answer.answer_text) for answer in answers)
         
         # Создаем попытку
         # Проверяем наличие успешной попытки с подсказкой
