@@ -227,7 +227,7 @@ async def get_riddles_for_block(block_id: int, session: AsyncSession, command_id
             .where(Attempt.question_id == question.id)
             .where(Attempt.command_id == command_id)
             .where(Attempt.is_true == True)
-            .where(AttemptType.name == "question")
+            .where(AttemptType.name.in_(["question", "question_hint"]))
         )
         solved = solved_attempt.scalar() is not None
         result.append(await get_riddle_data(question, solved, session, command_id))
@@ -311,7 +311,7 @@ async def check_answer(
                 content={"ok": False, "message": "Attempt type not found"},
                 status_code=404
             )
-
+        #TODO is_correct в случае если хватает монеток
         attempt = Attempt(
             user_id=user.id,
             command_id=command.id,

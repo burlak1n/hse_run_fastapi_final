@@ -12,6 +12,9 @@
     <a href="/">Назад</a>
     <div class="container">
         <button id="logout-btn">Выйти</button>
+        <div id="admin-panel-btn-container" hidden>
+            <a href="/admin" class="button" style="display:inline-block; padding:8px 16px; background-color:#007bff; color:white; text-decoration:none; border-radius:4px; margin-top:10px;">Админ-панель</a>
+        </div>
         <h2>Профиль</h2>
         <div id="user-info" hidden>
             <p>ФИО: <span id="full_name"></span></p>
@@ -45,10 +48,15 @@
             try {
                 const res = await fetch('/api/auth/me/');
                 if (!res.ok) throw new Error('Ошибка загрузки данных');
-                const { full_name, commands } = await res.json();
+                const { full_name, commands, role } = await res.json();
                 
                 setText('full_name', full_name);
                 show('user-info');
+
+                // Показываем кнопку админки только для пользователей с ролью organizer
+                if (role?.name === 'organizer') {
+                    show('admin-panel-btn-container');
+                }
 
                 // Загрузка QR-кода
                 const qrRes = await fetch('/api/auth/qr');

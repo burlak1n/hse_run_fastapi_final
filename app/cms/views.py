@@ -19,7 +19,18 @@ class UserAdmin(ModelView, model=User):
         User.created_at,
         User.updated_at
     ]
-    form_columns = [User.full_name, User.telegram_id, User.telegram_username, User.role_id]
+    form_columns = [
+        User.full_name, 
+        User.telegram_id, 
+        User.telegram_username, 
+        User.role
+    ]
+    form_ajax_refs = {
+        'role': {
+            'fields': ['name'],
+            'order_by': 'name',
+        }
+    }
 
 class RoleAdmin(ModelView, model=Role):
     column_list = [Role.id, Role.name]

@@ -29,12 +29,9 @@ def create_app() -> FastAPI:
        Сконфигурированное приложение FastAPI
    """
     app = FastAPI(
-        title="Стартовая сборка FastAPI",
+        title="HSE RUN",
         description=(
-            "Стартовая сборка с интегрированной SQLAlchemy 2 для разработки FastAPI приложений с продвинутой "
-            "архитектурой, включающей авторизацию, аутентификацию и управление ролями пользователей.\n\n"
-            "**Автор проекта**: Яковенко Алексей\n"
-            "**Telegram**: https://t.me/PythonPathMaster"
+            "HSE RUN - культурно-исторический квест по Москве"
         ),
         version="1.0.0",
         lifespan=lifespan,
@@ -111,7 +108,7 @@ def register_routers(app: FastAPI) -> None:
 
     # Подключаем основной API роутер к приложению
     app.include_router(api_router)
-    init_admin(app, base_url='/cms')
+    init_admin(app, base_url='/admin/database')
 
 # Создание экземпляра приложения
 app = create_app()

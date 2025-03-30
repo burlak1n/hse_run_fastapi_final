@@ -17,19 +17,8 @@ from app.config import settings
 
 router = APIRouter()
 
-@router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie("session_token")
-    return {'message': 'Пользователь успешно вышел из системы'}
-
-# @router.post("/refresh")
-# async def process_refresh_token(
-#         response: Response,
-#         user: User = Depends(check_refresh_token)
-# ):
-#     set_tokens(response, user.id)
-#     return {"message": "Токены успешно обновлены"}
-
+# Аутентификация и авторизация
+# ===========================
 
 @router.post("/telegram")
 async def telegram_auth(
@@ -92,6 +81,16 @@ async def complete_registration(
         "message": "Регистрация успешно завершена"
     }
 
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("session_token")
+    return {'message': 'Пользователь успешно вышел из системы'}
+
+
+# Пользователи и профили
+# =====================
+
 @router.get("/me")
 async def get_me(
     user_data: User = Depends(get_current_user),
@@ -138,6 +137,7 @@ async def get_me(
         commands=commands_info
     )
 
+
 @router.get("/qr")
 async def get_me_qr_code(
     user_data: User = Depends(get_current_user),
@@ -146,6 +146,7 @@ async def get_me_qr_code(
     # Генерация QR-кода с ссылкой на эндпоинт проверки
     qr_data = generate_qr_image(f"{settings.BASE_URL}/api/auth/qr/verify?token={session_token}")
     return StreamingResponse(io.BytesIO(qr_data), media_type="image/png")
+
 
 @router.get("/qr/verify")
 async def verify_qr(
@@ -254,14 +255,19 @@ async def verify_qr(
         "message": "Ваша роль не позволяет выполнить это действие"
     }
 
+
+# Управление командами
+# ==================
+
 @router.get("/command")
-async def command_create(
+async def get_user_command(
     session: AsyncSession = Depends(get_session_with_commit),
     user: User = Depends(get_current_user)
 ) -> CommandInfo:
     users_dao = UsersDAO(session)
     command = await users_dao.find_user_command_in_event(user_id=user.id)
     return CommandInfo.model_validate(command)
+
 
 @router.post("/command/create")
 async def command_create(
