@@ -8,6 +8,7 @@ from typing import Any
 import os
 from pathlib import Path
 from markupsafe import Markup
+import uuid
 
 class UserAdmin(ModelView, model=User):
     column_list = [
@@ -128,6 +129,13 @@ class QuestionAdmin(ModelView, model=Question):
         "hint_path": format_hint_link
     }
 
+    @staticmethod
+    def generate_unique_filename(original_filename: str) -> str:
+        """Генерирует уникальное имя файла"""
+        ext = original_filename.split('.')[-1]  # Получаем расширение файла
+        unique_id = uuid.uuid4().hex  # Генерируем уникальный идентификатор
+        return f"{unique_id}.{ext}"
+
     async def on_model_change(self, data: dict, model: Any, is_created: bool, request: Request) -> None:
         if 'image_path' in data:
             file = data['image_path']
@@ -142,12 +150,15 @@ class QuestionAdmin(ModelView, model=Question):
                     if old_file_path.exists():
                         os.remove(old_file_path)
                 
+                # Генерируем уникальное имя файла
+                unique_filename = self.generate_unique_filename(file.filename)
+                
                 file_content = await file.read()
-                file_path = img_dir / file.filename
+                file_path = img_dir / unique_filename
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 # Сохраняем только имя файла в базу данных
-                data['image_path'] = file.filename
+                data['image_path'] = unique_filename
             else:
                 # Если файл не загружен, устанавливаем None вместо объекта UploadFile
                 if not is_created and model.image_path:  # Для редактирования - сохраняем текущее значение
@@ -168,12 +179,15 @@ class QuestionAdmin(ModelView, model=Question):
                     if old_file_path.exists():
                         os.remove(old_file_path)
                 
+                # Генерируем уникальное имя файла
+                unique_filename = self.generate_unique_filename(file.filename)
+                
                 file_content = await file.read()
-                file_path = img_dir / file.filename
+                file_path = img_dir / unique_filename
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 # Сохраняем только имя файла в базу данных
-                data['image_path_answered'] = file.filename
+                data['image_path_answered'] = unique_filename
             else:
                 # Если файл не загружен, устанавливаем None вместо объекта UploadFile
                 if not is_created and model.image_path_answered:  # Для редактирования - сохраняем текущее значение
@@ -194,12 +208,15 @@ class QuestionAdmin(ModelView, model=Question):
                     if old_file_path.exists():
                         os.remove(old_file_path)
                 
+                # Генерируем уникальное имя файла
+                unique_filename = self.generate_unique_filename(file.filename)
+                
                 file_content = await file.read()
-                file_path = img_dir / file.filename
+                file_path = img_dir / unique_filename
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 # Сохраняем только имя файла в базу данных
-                data['hint_path'] = file.filename
+                data['hint_path'] = unique_filename
             else:
                 # Если файл не загружен, устанавливаем None вместо объекта UploadFile
                 if not is_created and model.hint_path:  # Для редактирования - сохраняем текущее значение
