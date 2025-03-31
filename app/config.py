@@ -7,11 +7,11 @@ class Settings(BaseSettings):
     DB_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/data/db.sqlite3"
 
     model_config = SettingsConfigDict(env_file=f"{BASE_DIR}/.env")
-    BASE_URL: str = "http://localhost.local"
+    BASE_URL: str = "https://localhost.local"
 
 class EventConfig:
     address = "Хитровский перeулок, 2/8, стр.5"
-    date = "29 апреля 2025"
+    date = "27 апреля 2025"
     number = "29"
     start_time = "12:00"
     end_time = "16:00"

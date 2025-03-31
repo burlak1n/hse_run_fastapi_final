@@ -1,4 +1,5 @@
 from sqladmin import ModelView
+from sqlalchemy import Select
 from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand
 from app.quest.models import Answer, Block, Question, AttemptType, Attempt
 from sqladmin.forms import FileField
@@ -255,6 +256,7 @@ class AnswerAdmin(ModelView, model=Answer):
         Answer.question
     ]
     form_columns = [
+        Answer.id,
         Answer.answer_text,
         Answer.question,
     ]
@@ -271,6 +273,16 @@ class AnswerAdmin(ModelView, model=Answer):
     column_formatters_detail = {
         "question": format_question_link,
     }
+
+    column_sortable_list = [
+        Answer.question,
+    ]
+
+    def sort_query(self, stmt: Select, request: Request) -> Select:
+        sort_by = request.query_params.get("sortBy")
+        if sort_by == "question":
+            stmt = stmt.join(Question).order_by(Question.title)
+        return super().sort_query(stmt, request)
 
 class AttemptTypeAdmin(ModelView, model=AttemptType):
     column_list = [
