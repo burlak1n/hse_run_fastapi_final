@@ -280,8 +280,12 @@ class AnswerAdmin(ModelView, model=Answer):
 
     def sort_query(self, stmt: Select, request: Request) -> Select:
         sort_by = request.query_params.get("sortBy")
+        sort_order = request.query_params.get("sort")
         if sort_by == "question":
-            stmt = stmt.join(Question).order_by(Question.title)
+            if sort_order == "desc":
+                stmt = stmt.join(Question).order_by(Question.title.desc())
+            else:
+                stmt = stmt.join(Question).order_by(Question.title.asc())
         return super().sort_query(stmt, request)
 
 class AttemptTypeAdmin(ModelView, model=AttemptType):
