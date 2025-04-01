@@ -207,7 +207,6 @@ async def get_riddle_data(question, solved: bool, session: AsyncSession, command
     
     return {
         "id": question.id,
-        "title": question.title,
         "image_path": question.image_path,
         "has_hint": has_hint and question.hint_path is not None,
         "hint": question.hint_path if has_hint else None

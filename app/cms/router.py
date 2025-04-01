@@ -550,9 +550,9 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
             if request.url.path.startswith("/admin/statics"):
                 response.headers["Cache-Control"] = "public, max-age=3600"
 
-                if not DEBUG:   
-                    # Добавляем заголовок для обеспечения безопасности контента
-                    response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
+                # if not DEBUG:   
+                #     # Добавляем заголовок для обеспечения безопасности контента
+                #     response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
             return response
             
         # Получаем и проверяем пользователя
@@ -572,8 +572,8 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
         
         # Добавляем заголовок для обеспечения безопасности контента
         response = await call_next(request)
-        if not DEBUG:
-            response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
+        # if not DEBUG:
+        #     response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
         return response
 
 
