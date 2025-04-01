@@ -60,7 +60,6 @@ class AttemptType(Base):
 
 class Attempt(Base):
     """Попытки / Транзакции пользователей"""
-    id: Mapped[int] = mapped_column(primary_key=True)
     command_id: Mapped[int] = mapped_column(ForeignKey('commands.id'))
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
     question_id: Mapped[Optional[int]] = mapped_column(ForeignKey('questions.id'))

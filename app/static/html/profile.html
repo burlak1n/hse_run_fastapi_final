@@ -6,6 +6,7 @@
     <!-- <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests"> -->
     <title>Профиль</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/profile.css">
 </head>
 <body>
     <h1>HSE RUN</h1>
@@ -16,37 +17,118 @@
             <a href="/admin" class="button" style="display:inline-block; padding:8px 16px; background-color:#007bff; color:white; text-decoration:none; border-radius:4px; margin-top:10px;">Админ-панель</a>
         </div>
         <h2>Профиль</h2>
-        <div id="user-info" hidden>
-            <p>ФИО: <span id="full_name"></span></p>
+        
+        <!-- Личная информация -->
+        <div id="user-info" class="profile-section" hidden>
+            <div class="profile-header">
+                <h3>Личная информация</h3>
+                <button id="edit-profile-btn" class="edit-btn">Редактировать</button>
+            </div>
+            <p id="full-name-display">ФИО: <span id="full_name"></span></p>
+            
+            <!-- Форма редактирования профиля (изначально скрыта) -->
+            <div id="edit-profile-form" class="hidden">
+                <p>ФИО: <input type="text" id="edit-full-name-input" placeholder="ФИО"></p>
+            </div>
+            
+            <!-- QR-код -->
             <div id="qr-code-container" hidden>
                 <h3>Ваш QR-код</h3>
                 <img id="qr-code-img" alt="QR Code" style="width: 200px; height: 200px;">
                 <button id="copy-link-btn" style="display: block; margin-top: 10px; padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Скопировать ссылку</button>
             </div>
-            <div id="team-info" hidden>
+        </div>
+        
+        <!-- Информация о команде -->
+        <div id="team-info" class="profile-section" hidden>
+            <div class="profile-header">
                 <h3>Ваша команда</h3>
-                <p><span id="team-name-info"></span></p>
-                <div id="team-participants"></div>
-                <!-- <button id="leave-team-btn">Покинуть команду</button> -->
+                <div class="dropdown">
+                    <button id="team-settings-btn" class="settings-btn">⚙️</button>
+                    <div id="team-dropdown" class="dropdown-content">
+                        <!-- Содержимое будет добавлено динамически -->
+                    </div>
+                </div>
             </div>
-            <div id="create-team" hidden>
-                <h3>Создать команду</h3>
-                <form id="create-team-form">
-                    <input type="text" id="team-name-input" placeholder="Название команды" required>
-                    <button type="submit">Создать</button>
-                </form>
-                <div id="team-error" style="color: red; margin-top: 10px;" hidden></div>
-            </div>
+            <p>Название: <span id="team-name-info"></span></p>
+            <h4>Участники:</h4>
+            <div id="team-participants"></div>
+        </div>
+        
+        <!-- Блок для создания команды (для гостей без команды) -->
+        <div id="create-team" class="profile-section" hidden>
+            <h3>Создать команду</h3>
+            <form id="create-team-form">
+                <input type="text" id="team-name-input" placeholder="Название команды" required>
+                <button type="submit">Создать</button>
+            </form>
+            <div id="team-error" style="color: red; margin-top: 10px;" hidden></div>
         </div>
     </div>
+    
+    <!-- Модальное окно для редактирования команды -->
+    <div id="edit-team-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Редактировать команду</h3>
+            <form id="edit-team-form">
+                <label for="edit-team-name">Название команды:</label>
+                <input type="text" id="edit-team-name" required>
+                <h4>Участники команды:</h4>
+                <div id="edit-team-participants"></div>
+                <button type="submit" style="margin-top: 15px;">Сохранить</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Модальное окно для подтверждения удаления команды -->
+    <div id="delete-team-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Удалить команду</h3>
+            <p>Вы уверены, что хотите удалить команду? Это действие нельзя отменить.</p>
+            <button id="confirm-delete-team" style="background-color: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; margin-right: 10px;">Удалить</button>
+            <button id="cancel-delete-team" style="padding: 8px 16px; border: none; border-radius: 4px;">Отмена</button>
+        </div>
+    </div>
+    
     <script>
+        // Вспомогательные функции
         const el = selector => document.querySelector(selector);
         const show = selector => el(selector).hidden = false;
         const hide = selector => el(selector).hidden = true;
         const setText = (selector, text) => el(selector).textContent = text;
-
+        const addClass = (selector, className) => el(selector).classList.add(className);
+        const removeClass = (selector, className) => el(selector).classList.remove(className);
+        const hideModal = selector => {
+            const modal = el(selector);
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        };
+        
+        // Обработчики модальных окон
+        function showEditTeamModal() {
+            removeClass('#edit-team-modal', 'hidden');
+            return false; // Предотвращаем переход по ссылке
+        }
+        
+        function showDeleteTeamModal() {
+            removeClass('#delete-team-modal', 'hidden');
+            return false; // Предотвращаем переход по ссылке
+        }
+        
+        // Глобальные переменные для хранения данных
+        let userData = null;
+        let qrLink = null;
+        
+        // Функция загрузки данных пользователя
         async function fetchUserData() {
             try {
+                // Сразу скрываем модальные окна
+                hideModal('#delete-team-modal');
+                hideModal('#edit-team-modal');
+                
                 const [userRes, qrRes] = await Promise.all([
                     fetch('/api/auth/me/'),
                     fetch('/api/auth/qr')
@@ -54,47 +136,113 @@
 
                 if (!userRes.ok || !qrRes.ok) throw new Error('Ошибка загрузки данных');
 
-                const { full_name, commands, role } = await userRes.json();
-                const { qr_image, qr_link } = await qrRes.json();
+                userData = await userRes.json();
+                const qrData = await qrRes.json();
+                qrLink = qrData.qr_link;
+                
+                const { full_name, commands, role } = userData;
 
+                // Устанавливаем ФИО пользователя
                 setText('#full_name', full_name);
+                el('#edit-full-name-input').value = full_name;
                 show('#user-info');
 
+                // Показываем админ-панель для организатора
                 if (role?.name === 'organizer') {
                     show('#admin-panel-btn-container');
                 }
 
-                el('#qr-code-img').src = `data:image/png;base64,${qr_image}`;
+                // Настраиваем QR-код
+                el('#qr-code-img').src = `data:image/png;base64,${qrData.qr_image}`;
                 show('#qr-code-container');
+                el('#copy-link-btn').onclick = () => handleCopyLink(qrLink);
 
-                el('#copy-link-btn').onclick = () => handleCopyLink(qr_link);
-
-                if (commands?.length) {
+                // Проверяем роль insider (для них скрываем блок создания команды)
+                if (role?.name === 'insider') {
+                    hide('#create-team');
+                } else if (commands?.length) {
+                    // Если у пользователя есть команда, показываем информацию о ней
                     const team = commands[0];
                     if (team) {
-                        setText('#team-name-info', `${team.name} ${team.participants.length}/6`);
+                        // Настраиваем отображение команды
+                        setText('#team-name-info', `${team.name} (${team.participants.length}/6)`);
+                        
+                        // Определяем, является ли пользователь капитаном команды
+                        const isUserCaptain = team.role === 'captain';
+                        
+                        // Формируем список участников
                         el('#team-participants').innerHTML = team.participants
-                            .map(p => `<p>${p.role === 'captain' ? 'к ' : ''}${p.full_name}</p>`)
+                            .map(p => `<p>${p.role === 'captain' ? 'Капитан: ' : ''}${p.full_name}</p>`)
                             .join('');
+                            
+                        // Настраиваем выпадающее меню в зависимости от роли
+                        setupTeamDropdown(isUserCaptain);
+                        
+                        // Заполняем форму редактирования команды
+                        el('#edit-team-name').value = team.name;
+                        el('#edit-team-participants').innerHTML = team.participants
+                            .map(p => {
+                                // Капитану нельзя показывать кнопку удаления, также нельзя показывать кнопку для себя
+                                const canRemove = isUserCaptain && p.role !== 'captain' && p.id !== userData.id;
+                                return `
+                                    <div class="participant-item" data-user-id="${p.id}">
+                                        ${p.role === 'captain' ? 'Капитан: ' : ''}${p.full_name}
+                                        ${canRemove ? `<button type="button" class="remove-btn" onclick="handleRemoveParticipant(${p.id})">✕</button>` : ''}
+                                    </div>
+                                `;
+                            })
+                            .join('');
+                            
                         show('#team-info');
                     } else {
-                        show('#create-team');
+                        // Если команды нет и пользователь не insider, показываем блок создания команды
+                        if (role?.name !== 'insider') {
+                            show('#create-team');
+                        }
                     }
-                } else {
+                } else if (role?.name !== 'insider') {
+                    // Если у пользователя нет команды и он не insider, показываем блок создания команды
                     show('#create-team');
                 }
-            } catch {
+
+                // Убедимся, что модальные окна скрыты при загрузке
+                addClass('#delete-team-modal', 'hidden');
+                addClass('#edit-team-modal', 'hidden');
+            } catch (error) {
+                console.error('Ошибка при загрузке данных:', error);
                 window.location.href = '/registration';
             }
         }
-
-        async function handleCopyLink(qr_link) {
+        
+        // Настройка выпадающего меню команды в зависимости от роли
+        function setupTeamDropdown(isUserCaptain) {
+            const dropdown = el('#team-dropdown');
+            if (isUserCaptain) {
+                // Для капитана: пригласить, редактировать, удалить
+                dropdown.innerHTML = `
+                    <a href="#" id="invite-to-team">Пригласить</a>
+                    <a href="#" id="edit-team">Редактировать</a>
+                    <a href="#" id="delete-team">Удалить команду</a>
+                `;
+                // Настраиваем обработчики
+                el('#invite-to-team').onclick = () => handleCopyLink(qrLink);
+                el('#edit-team').onclick = showEditTeamModal;
+                el('#delete-team').onclick = showDeleteTeamModal;
+            } else {
+                // Для обычного участника: выйти из команды
+                dropdown.innerHTML = `<a href="#" id="leave-team">Выйти из команды</a>`;
+                el('#leave-team').onclick = handleLeaveTeam;
+            }
+        }
+        
+        // Обработчик копирования ссылки QR-кода
+        async function handleCopyLink(link) {
             try {
                 if (navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(qr_link);
+                    await navigator.clipboard.writeText(link);
                 } else {
                     const textArea = document.createElement('textarea');
-                    textArea.value = qr_link;
+                    textArea.value = link;
                     document.body.appendChild(textArea);
                     textArea.select();
                     document.execCommand('copy');
@@ -116,27 +264,178 @@
                 alert('Не удалось скопировать ссылку: ' + error.message);
             }
         }
-
+        
+        // Функция для выполнения запросов к API
         const handleRequest = async (url, method, body) => {
-            const res = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body });
-            if (!res.ok) throw new Error('Ошибка запроса');
-            window.location.reload();
+            const res = await fetch(url, { 
+                method, 
+                headers: {'Content-Type': 'application/json'}, 
+                body: body ? JSON.stringify(body) : undefined 
+            });
+            
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.detail || 'Ошибка запроса');
+            }
+            
+            return res.json();
         };
-
-        el('#logout-btn').onclick = () => handleRequest('/api/auth/logout', 'POST');
-
-        el('#create-team-form').onsubmit = async e => {
+        
+        // Обработчики команд
+        async function handleCreateTeam(e) {
             e.preventDefault();
             try {
-                await handleRequest('/api/auth/command/create', 'POST', 
-                    JSON.stringify({ name: el('#team-name-input').value }));
+                await handleRequest('/api/auth/command/create', 'POST', { 
+                    name: el('#team-name-input').value 
+                });
+                window.location.reload();
             } catch (e) {
                 setText('#team-error', e.message);
                 show('#team-error');
             }
+        }
+        
+        async function handleEditTeam(e) {
+            e.preventDefault();
+            try {
+                await handleRequest('/api/auth/command/rename', 'POST', { 
+                    name: el('#edit-team-name').value 
+                });
+                addClass('#edit-team-modal', 'hidden');
+                window.location.reload();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+        
+        async function handleDeleteTeam() {
+            try {
+                await handleRequest('/api/auth/command/delete', 'POST');
+                hideModal('#delete-team-modal');
+                window.location.reload();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+        
+        async function handleLeaveTeam() {
+            if (confirm('Вы уверены, что хотите выйти из команды?')) {
+                try {
+                    await handleRequest('/api/auth/command/leave', 'POST');
+                    window.location.reload();
+                } catch (e) {
+                    alert(e.message);
+                }
+            }
+            return false; // Предотвращаем переход по ссылке
+        }
+        
+        async function handleRemoveParticipant(userId) {
+            if (confirm('Вы уверены, что хотите исключить этого участника из команды?')) {
+                try {
+                    await handleRequest('/api/auth/command/remove_user', 'POST', { user_id: userId });
+                    addClass('#edit-team-modal', 'hidden');
+                    window.location.reload();
+                } catch (e) {
+                    alert(e.message);
+                }
+            }
+        }
+        
+        // Обработчики профиля
+        let isEditing = false;
+        
+        function showEditProfileForm() {
+            if (isEditing) {
+                // Если уже редактируем, сохраняем изменения
+                handleSaveProfile();
+                return;
+            }
+            
+            // Начинаем редактирование
+            isEditing = true;
+            el('#full-name-display').hidden = true;
+            addClass('#edit-profile-form', 'show');
+            removeClass('#edit-profile-form', 'hidden');
+            el('#edit-profile-btn').textContent = 'Сохранить';
+        }
+        
+        function hideEditProfileForm() {
+            isEditing = false;
+            el('#full-name-display').hidden = false;
+            removeClass('#edit-profile-form', 'show');
+            addClass('#edit-profile-form', 'hidden');
+            el('#edit-profile-btn').textContent = 'Редактировать';
+        }
+        
+        async function handleSaveProfile() {
+            try {
+                await handleRequest('/api/auth/update_profile', 'POST', { 
+                    full_name: el('#edit-full-name-input').value 
+                });
+                
+                // Обновляем отображаемое имя
+                setText('#full_name', el('#edit-full-name-input').value);
+                hideEditProfileForm();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+        
+        // Инициализация страницы
+        window.onload = function() {
+            // Убедимся, что модальные окна скрыты при загрузке
+            hideModal('#delete-team-modal');
+            hideModal('#edit-team-modal');
+            
+            // Загружаем данные пользователя
+            fetchUserData();
+            
+            // Настраиваем обработчики событий
+            // Выход из системы
+            el('#logout-btn').onclick = () => handleRequest('/api/auth/logout', 'POST').then(() => window.location.reload());
+            
+            // Создание команды
+            el('#create-team-form').onsubmit = handleCreateTeam;
+            
+            // Редактирование профиля
+            el('#edit-profile-btn').onclick = showEditProfileForm;
+            
+            // Редактирование команды
+            el('#edit-team-form').onsubmit = handleEditTeam;
+            
+            // Закрытие модальных окон
+            document.querySelectorAll('.close, #cancel-delete-team').forEach(btn => {
+                btn.onclick = function() {
+                    hideModal('#edit-team-modal');
+                    hideModal('#delete-team-modal');
+                };
+            });
+            
+            // Удаление команды
+            el('#confirm-delete-team').onclick = handleDeleteTeam;
+            
+            // Настройка выпадающего меню
+            el('#team-settings-btn').onclick = function() {
+                el('#team-dropdown').classList.toggle('show');
+            };
+            
+            // Закрытие выпадающего меню при клике вне его
+            window.onclick = function(event) {
+                if (!event.target.matches('.settings-btn')) {
+                    const dropdowns = document.getElementsByClassName('dropdown-content');
+                    for (let i = 0; i < dropdowns.length; i++) {
+                        const openDropdown = dropdowns[i];
+                        if (openDropdown.classList.contains('show')) {
+                            openDropdown.classList.remove('show');
+                        }
+                    }
+                }
+            };
+            
+            // Делаем функцию handleRemoveParticipant доступной глобально
+            window.handleRemoveParticipant = handleRemoveParticipant;
         };
-
-        fetchUserData();
     </script>
 </body>
 </html>

@@ -93,11 +93,108 @@ class UsersDAO(BaseDAO):
             logger.error(f"Ошибка при создании записи в таблице CommandsUser: {e}")
             raise
 
+    async def update_full_name(self, user_id: int, full_name: str):
+        """
+        Обновляет ФИО пользователя
+        """
+        logger.info(f"Обновление ФИО пользователя {user_id}")
+        try:
+            user = await self.find_one_by_id(user_id)
+            if not user:
+                raise ValueError(f"Пользователь с ID {user_id} не найден")
+            
+            user.full_name = full_name
+            await self._session.commit()
+            logger.info(f"ФИО пользователя {user_id} успешно обновлено")
+            return user
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении ФИО пользователя: {e}")
+            raise
+
 class CommandsUsersDAO(BaseDAO):
     model = CommandsUser
 
+    async def delete_by_command_id(self, command_id: int):
+        """
+        Удаляет все записи связанные с командой
+        """
+        logger.info(f"Удаление всех пользователей из команды {command_id}")
+        try:
+            stmt = select(self.model).where(self.model.command_id == command_id)
+            result = await self._session.execute(stmt)
+            command_users = result.scalars().all()
+            
+            for cu in command_users:
+                await self._session.delete(cu)
+            
+            await self._session.commit()
+            logger.info(f"Все пользователи успешно удалены из команды {command_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при удалении пользователей из команды: {e}")
+            raise
+    
+    async def delete_by_user_id(self, user_id: int):
+        """
+        Удаляет запись пользователя из команды
+        """
+        logger.info(f"Удаление пользователя {user_id} из команды")
+        try:
+            stmt = select(self.model).where(self.model.user_id == user_id)
+            result = await self._session.execute(stmt)
+            command_user = result.scalar_one_or_none()
+            
+            if command_user:
+                await self._session.delete(command_user)
+                await self._session.commit()
+                logger.info(f"Пользователь {user_id} успешно удален из команды")
+            else:
+                logger.warning(f"Пользователь {user_id} не найден в команде")
+        except Exception as e:
+            logger.error(f"Ошибка при удалении пользователя из команды: {e}")
+            raise
+
 class CommandsDAO(BaseDAO):
     model = Command
+    
+    async def delete_by_id(self, command_id: int):
+        """
+        Удаляет команду по ID
+        """
+        logger.info(f"Удаление команды {command_id}")
+        try:
+            stmt = select(self.model).where(self.model.id == command_id)
+            result = await self._session.execute(stmt)
+            command = result.scalar_one_or_none()
+            
+            if command:
+                await self._session.delete(command)
+                await self._session.commit()
+                logger.info(f"Команда {command_id} успешно удалена")
+            else:
+                logger.warning(f"Команда {command_id} не найдена")
+        except Exception as e:
+            logger.error(f"Ошибка при удалении команды: {e}")
+            raise
+    
+    async def update_name(self, command_id: int, name: str):
+        """
+        Обновляет название команды
+        """
+        logger.info(f"Обновление названия команды {command_id}")
+        try:
+            stmt = select(self.model).where(self.model.id == command_id)
+            result = await self._session.execute(stmt)
+            command = result.scalar_one_or_none()
+            
+            if command:
+                command.name = name
+                await self._session.commit()
+                logger.info(f"Название команды {command_id} успешно обновлено")
+            else:
+                logger.warning(f"Команда {command_id} не найдена")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении названия команды: {e}")
+            raise
 
 class RolesDAO(BaseDAO):
     model = Role

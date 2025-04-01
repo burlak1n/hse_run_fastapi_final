@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QR-код</title>
+    <!-- <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests"> -->
     <link rel="stylesheet" href="/static/css/styles.css">
     <style>
         .container {
@@ -37,6 +38,15 @@
             margin: 4px 2px;
             cursor: pointer;
             border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            opacity: 0.7;
         }
         .btn-points {
             background-color: #2196F3;
@@ -44,14 +54,341 @@
         .btn-attendance {
             background-color: #FF9800;
         }
+        .btn-join {
+            background-color: #4CAF50;
+        }
+        .btn-cancel {
+            background-color: #f44336;
+        }
+        .confirmation-box {
+            margin-top: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 15px;
+            display: none;
+            animation: fadeIn 0.5s;
+        }
+        .guest-message {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+            animation: slideIn 0.5s;
+        }
+        .insider-view {
+            display: none;
+            animation: fadeIn 0.5s;
+        }
+        
+        /* Анимации */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideIn {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        /* Статус */
+        #status {
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        /* Адаптивность для мобильных устройств */
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+            .btn {
+                width: 100%;
+                margin: 5px 0;
+            }
+        }
+        
+        /* Сообщения об ошибках */
+        .error-message {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fff8f8;
+            border-radius: 5px;
+            border-left: 4px solid #dc3545;
+            animation: slideIn 0.5s;
+            font-size: 16px;
+            color: #721c24;
+        }
+        
+        .error-message h3 {
+            display: flex;
+            align-items: center;
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #dc3545;
+        }
+        
+        .error-message h3::before {
+            content: "⚠️";
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        .error-message p {
+            margin-bottom: 8px;
+        }
     </style>
     <script>
+        // Текущий пользователь и данные сканирования
+        let currentUser = null;
+        let qrData = null;
+        
         // Получаем токен из URL
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
 
-        // Отправляем запрос на сервер для верификации токена
+        /**
+         * Обрабатывает успешную верификацию QR-кода
+         * @param {Object} result - Результат запроса к API
+         */
+        function handleSuccessfulVerification(result) {
+            document.getElementById('status').textContent = 'Верификация прошла успешно!';
+            document.getElementById('status').style.backgroundColor = '#d4edda'; // Зеленый фон
+            
+            // Сохраняем результат
+            if (result.user) {
+                currentUser = result.user;
+                qrData = result;
+                
+                // Обрабатываем результат в зависимости от роли
+                handleRoleSpecificView();
+            }
+        }
+        
+        /**
+         * Обрабатывает ошибку сервера (500)
+         * @param {Response} response - Ответ от сервера
+         */
+        function handleServerError(response) {
+            document.getElementById('status').textContent = 'Ошибка сервера';
+            document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
+            
+            showErrorMessage('Произошла ошибка на сервере. Пожалуйста, попробуйте позже или обратитесь к организаторам.');
+            createRetryButton();
+        }
+        
+        /**
+         * Обрабатывает ошибку истекшего токена (401)
+         * @param {Response} response - Ответ от сервера
+         */
+        async function handleExpiredToken(response) {
+            document.getElementById('status').textContent = 'Истекший токен';
+            document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
+            
+            // Пробуем получить текст ошибки
+            try {
+                const result = await response.json();
+                showErrorMessage(result.detail || 'Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле.');
+            } catch (e) {
+                showErrorMessage('Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле.');
+            }
+        }
+        
+        /**
+         * Обрабатывает сообщения об ошибках от сервера
+         * @param {Object} result - Результат запроса к API
+         */
+        function handleServerErrorMessage(result) {
+            document.getElementById('status').textContent = result.message || 'Ошибка верификации';
+            document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
+            
+            // Если сообщение о том, что пользователь уже в команде
+            if (result.message && result.message.includes('уже состоите в')) {
+                showGuestMessage(result.message);
+            } else {
+                // Для других ошибок показываем общий формат ошибки
+                showErrorMessage(result.message || 'Неизвестная ошибка при проверке QR-кода');
+                createRetryButton();
+            }
+        }
+        
+        /**
+         * Отправляет запрос на сервер для верификации токена
+         * Обновляет UI в зависимости от результата
+         */
         async function verifyToken() {
+            // Проверяем, есть ли токен в URL
+            if (!token) {
+                document.getElementById('status').textContent = 'Ошибка: Токен отсутствует';
+                document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
+                
+                showErrorMessage('Токен не был найден в URL. Пожалуйста, убедитесь, что вы используете правильную ссылку или QR-код.');
+                return;
+            }
+            
+            try {
+                // Показываем состояние загрузки
+                document.getElementById('status').textContent = 'Проверка токена...';
+                document.getElementById('status').style.backgroundColor = '#fff3cd'; // Желтый фон
+
+                const response = await fetch('/api/auth/qr/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+
+                // Проверяем коды ошибок
+                if (response.status === 500) {
+                    return handleServerError(response);
+                }
+                
+                if (response.status === 401) {
+                    return handleExpiredToken(response);
+                }
+
+                // Получаем JSON-ответ
+                const result = await response.json();
+                
+                if (response.ok) {
+                    if (result.ok) {
+                        // В случае успешной верификации
+                        handleSuccessfulVerification(result);
+                    } else {
+                        // В случае ошибки от сервера
+                        handleServerErrorMessage(result);
+                    }
+                } else {
+                    // В случае ошибки HTTP
+                    const errorText = result.detail || result.message || 'Ошибка верификации';
+                    document.getElementById('status').textContent = errorText;
+                    document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
+                    
+                    // Показываем общую информацию об ошибке
+                    showErrorMessage(errorText);
+                    createRetryButton();
+                }
+            } catch (error) {
+                console.error('Произошла ошибка при выполнении запроса:', error);
+                document.getElementById('status').textContent = 'Ошибка сети';
+                document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
+                
+                // Создаем сообщение об ошибке
+                let errorMessage = 'Произошла ошибка при обработке запроса. Пожалуйста, попробуйте позже.';
+                
+                // Проверяем, не связана ли ошибка с истечением срока действия токена
+                if (error.message && (
+                    error.message.includes('Invalid or expired session token') || 
+                    error.message.includes('недействительный') || 
+                    error.message.includes('истек')
+                )) {
+                    errorMessage = 'Срок действия ссылки истек или QR-код недействителен. Пожалуйста, получите новую ссылку.';
+                }
+                
+                try {
+                    showErrorMessage(errorMessage);
+                    
+                    // Показываем кнопку для повторной попытки
+                    createRetryButton();
+                } catch (uiError) {
+                    console.error('Ошибка при обновлении UI:', uiError);
+                    // В случае ошибки в UI, добавляем простое текстовое сообщение
+                    document.querySelector('.container').innerHTML += `
+                        <div style="margin-top: 20px; color: red;">
+                            <p>Произошла ошибка. Пожалуйста, перезагрузите страницу.</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        /**
+         * Определяет отображение UI в зависимости от роли пользователя
+         */
+        function handleRoleSpecificView() {
+            if (!currentUser) return;
+            
+            // Для гостей
+            if (currentUser.role === 'guest') {
+                handleGuestView();
+            }
+            // Для инсайдеров
+            else if (currentUser.role === 'insider') {
+                handleInsiderView();
+            }
+            // Для организаторов
+            else if (currentUser.role === 'organizer') {
+                handleOrganizerView();
+            }
+        }
+        
+        // Обработка для гостей
+        function handleGuestView() {
+            // Проверка, своя ссылка или чужая
+            if (currentUser.id === qrData.user?.id) {
+                // Своя ссылка - показываем полезную информацию
+                const messageContent = `
+                    <h3>Это ваша ссылка для приглашения</h3>
+                    <p>Поделитесь этой ссылкой (или QR-кодом) с участниками, чтобы они могли присоединиться к вашей команде ${qrData.command?.name}.</p>
+                    <p>Текущее количество участников: ${qrData.command?.participants.length} из 6</p>
+                `;
+                const guestMsg = document.createElement('div');
+                guestMsg.className = 'guest-message';
+                guestMsg.innerHTML = messageContent;
+                document.querySelector('.container').appendChild(guestMsg);
+            } else {
+                // Проверяем, является ли владелец ссылки капитаном
+                const isOwnerCaptain = qrData.command?.participants.some(p => 
+                    p.id === qrData.user?.id && p.role === 'captain'
+                );
+                
+                if (!isOwnerCaptain) {
+                    showGuestMessage('Владелец ссылки не является капитаном команды. Только капитан может добавлять новых участников.');
+                } else {
+                    // Чужая ссылка от капитана - показываем подтверждение
+                    showJoinConfirmation();
+                }
+            }
+        }
+        
+        // Показать сообщение для гостя
+        function showGuestMessage(message) {
+            const guestMsg = document.createElement('div');
+            guestMsg.className = 'guest-message';
+            guestMsg.textContent = message;
+            document.querySelector('.container').appendChild(guestMsg);
+        }
+        
+        // Показать подтверждение присоединения
+        function showJoinConfirmation() {
+            const confirmBox = document.createElement('div');
+            confirmBox.className = 'confirmation-box';
+            confirmBox.style.display = 'block';
+            confirmBox.innerHTML = `
+                <h3>Присоединиться к команде?</h3>
+                <p>Вы хотите присоединиться к команде "${qrData.command?.name}", принадлежащей ${qrData.user?.full_name}?</p>
+                <button onclick="joinTeam()" class="btn btn-join">Да, присоединиться</button>
+                <button onclick="cancelJoin()" class="btn btn-cancel">Отмена</button>
+            `;
+            document.querySelector('.container').appendChild(confirmBox);
+        }
+        
+        // Функция для присоединения к команде
+        async function joinTeam() {
+            // Блокируем кнопки во время запроса
+            const joinBtn = document.querySelector('.btn-join');
+            const cancelBtn = document.querySelector('.btn-cancel');
+            joinBtn.disabled = true;
+            cancelBtn.disabled = true;
+            
+            // Показываем индикатор загрузки
+            document.getElementById('status').textContent = 'Присоединение к команде...';
+            
+            // Отправляем запрос на сервер
             try {
                 const response = await fetch('/api/auth/qr/verify', {
                     method: 'POST',
@@ -64,24 +401,63 @@
                 const result = await response.json();
                 
                 if (response.ok && result.ok) {
-                    // В случае успешной верификации
+                    // В случае успешного присоединения
                     document.getElementById('status').textContent = 'Верификация прошла успешно!';
-                    
-                    // Отображаем результат
-                    if (result.user && result.command) {
-                        showUserInfo(result.user, result.command);
-                    }
+                    showGuestMessage('Вы успешно присоединились к команде!');
+                    document.querySelector('.confirmation-box').style.display = 'none';
                 } else {
                     // В случае ошибки
-                    document.getElementById('status').textContent = result.message || 'Ошибка верификации';
+                    document.getElementById('status').textContent = 'Ошибка при присоединении';
+                    showGuestMessage(result.message || 'Не удалось присоединиться к команде');
+                    
+                    // Разблокируем кнопки
+                    joinBtn.disabled = false;
+                    cancelBtn.disabled = false;
                 }
             } catch (error) {
                 document.getElementById('status').textContent = 'Ошибка сети';
+                showGuestMessage('Ошибка сети');
                 console.error(error);
+                
+                // Разблокируем кнопки
+                joinBtn.disabled = false;
+                cancelBtn.disabled = false;
             }
         }
+        
+        // Функция для отмены присоединения
+        function cancelJoin() {
+            document.querySelector('.confirmation-box').style.display = 'none';
+            showGuestMessage('Вы отменили присоединение к команде');
+        }
+        
+        // Обработка для инсайдеров
+        function handleInsiderView() {
+            // Показываем ограниченную информацию
+            const insiderView = document.createElement('div');
+            insiderView.className = 'insider-view';
+            insiderView.style.display = 'block';
+            insiderView.innerHTML = `
+                <div class="result-container" style="display: block;">
+                    <h3>Информация о команде</h3>
+                    <p><strong>Название команды:</strong> ${qrData.command.name}</p>
+                    <p><strong>Количество участников:</strong> ${qrData.command.participants.length}</p>
+                    <p><strong>Капитан:</strong> ${qrData.command.participants.find(p => p.role === 'captain')?.full_name || 'Не назначен'}</p>
+                    
+                    <div class="action-buttons" style="display: block;">
+                        <button onclick="changePoints()" class="btn btn-points">Изменить баллы</button>
+                    </div>
+                </div>
+            `;
+            document.querySelector('.container').appendChild(insiderView);
+        }
+        
+        // Обработка для организаторов
+        function handleOrganizerView() {
+            showUserInfo(qrData.user, qrData.command);
+        }
 
-        // Функция для отображения информации о пользователе и команде
+        // Функция для отображения полной информации о пользователе и команде (для организаторов)
         function showUserInfo(user, command) {
             const resultContainer = document.getElementById('result-container');
             resultContainer.style.display = 'block';
@@ -119,23 +495,124 @@
             
             participantList.appendChild(ul);
             
-            // Показываем кнопки действий для организаторов и инсайдеров
-            if (user.role === 'organizer' || user.role === 'insider') {
+            // Показываем кнопки действий для организаторов
+            if (user.role === 'organizer') {
                 const actionButtons = document.getElementById('action-buttons');
                 actionButtons.style.display = 'block';
+                actionButtons.innerHTML = `
+                    <button onclick="changePoints()" class="btn btn-points">Изменить баллы</button>
+                    <button onclick="markAttendance()" class="btn btn-attendance">Отметить посещение</button>
+                `;
             }
         }
         
         // Функция для изменения баллов команды
         function changePoints() {
-            alert('Функциональность изменения баллов будет добавлена позднее');
-            // Здесь будет логика для изменения баллов
+            const points = prompt('Введите количество баллов для команды:');
+            if (points !== null && !isNaN(Number(points))) {
+                // Здесь будет логика для изменения баллов
+                const confirmMessage = `Вы добавляете ${points} баллов команде "${qrData.command.name}". Продолжить?`;
+                if (confirm(confirmMessage)) {
+                    // Заглушка для будущего API
+                    alert(`Функциональность изменения баллов будет добавлена позднее. Вы ввели: ${points} баллов`);
+                    
+                    // Здесь будет запрос к API для изменения баллов
+                    // const response = await fetch('/api/points/add', {
+                    //     method: 'POST',
+                    //     headers: { 'Content-Type': 'application/json' },
+                    //     body: JSON.stringify({ 
+                    //         command_id: qrData.command.id,
+                    //         points: Number(points)
+                    //     })
+                    // });
+                }
+            } else if (points !== null) {
+                alert('Пожалуйста, введите корректное число баллов');
+            }
         }
         
         // Функция для отметки посещения
         function markAttendance() {
-            alert('Функциональность отметки посещения будет добавлена позднее');
-            // Здесь будет логика для отметки посещения
+            const confirmMessage = `Вы собираетесь отметить посещение команды "${qrData.command.name}". Продолжить?`;
+            if (confirm(confirmMessage)) {
+                // Заглушка для будущего API
+                alert('Функциональность отметки посещения будет добавлена позднее');
+                
+                // Здесь будет запрос к API для отметки посещения
+                // const response = await fetch('/api/attendance/mark', {
+                //     method: 'POST',
+                //     headers: { 'Content-Type': 'application/json' },
+                //     body: JSON.stringify({ command_id: qrData.command.id })
+                // });
+            }
+        }
+
+        /**
+         * Отображает сообщение об ошибке
+         * @param {string} message - Текст сообщения об ошибке
+         */
+        function showErrorMessage(message) {
+            // Удаляем предыдущие сообщения об ошибках
+            const previousErrors = document.querySelectorAll('.error-message');
+            previousErrors.forEach(el => el.remove());
+            
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'error-message';
+            errorMsg.innerHTML = `
+                <h3>Ошибка</h3>
+                <p>${message}</p>
+                <p>Если проблема повторяется, обратитесь к организаторам.</p>
+            `;
+            
+            // Добавляем сообщение в контейнер
+            const container = document.querySelector('.container');
+            container.appendChild(errorMsg);
+            
+            // Прокручиваем к сообщению об ошибке
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        /**
+         * Создает и добавляет кнопку для повторной попытки
+         * @returns {HTMLButtonElement} - Созданная кнопка
+         */
+        function createRetryButton() {
+            // Удаляем предыдущие кнопки повтора
+            const previousButtons = document.querySelectorAll('.retry-button');
+            previousButtons.forEach(btn => btn.remove());
+            
+            const retryButton = document.createElement('button');
+            retryButton.textContent = 'Повторить попытку';
+            retryButton.className = 'btn retry-button';
+            retryButton.style.marginTop = '15px';
+            retryButton.onclick = () => {
+                try {
+                    // Удаляем сообщение об ошибке и кнопку
+                    const errorElements = document.querySelectorAll('.error-message');
+                    errorElements.forEach(el => el.remove());
+                    
+                    // Удаляем кнопку
+                    const buttons = document.querySelectorAll('.retry-button');
+                    buttons.forEach(btn => btn.remove());
+                    
+                    // Сбрасываем состояние
+                    document.getElementById('status').textContent = 'Проверка токена...';
+                    document.getElementById('status').style.backgroundColor = '#fff3cd'; // Желтый фон
+                    
+                    // Повторяем попытку
+                    setTimeout(() => verifyToken(), 100);
+                } catch (e) {
+                    console.error('Ошибка при очистке UI:', e);
+                    // Просто перезагружаем страницу, если что-то пошло не так
+                    window.location.reload();
+                }
+            };
+            
+            // Добавляем кнопку в контейнер
+            const container = document.querySelector('.container');
+            container.appendChild(retryButton);
+            
+            return retryButton;
         }
 
         // Вызываем функцию верификации при загрузке страницы
@@ -152,10 +629,7 @@
             <div id="command-info" class="command-info"></div>
             <div id="participant-list" class="participant-list"></div>
             
-            <div id="action-buttons" class="action-buttons">
-                <button onclick="changePoints()" class="btn btn-points">Изменить баллы</button>
-                <button onclick="markAttendance()" class="btn btn-attendance">Отметить посещение</button>
-            </div>
+            <div id="action-buttons" class="action-buttons"></div>
         </div>
     </div>
 </body>
