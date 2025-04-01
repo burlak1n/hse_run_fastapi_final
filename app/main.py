@@ -84,6 +84,10 @@ def register_routers(app: FastAPI) -> None:
         @root_router.get("/profile", tags=["profile"])
         async def profile_page(request: Request):
             return render_template(request, "profile.html")
+
+        @root_router.get("/qr/verify", tags=["qr_verify"])
+        async def qr_verify_page(request: Request):
+            return render_template(request, "qrverify.html")
     else:
         pass
         # @root_router.get("/", tags=["root"])
@@ -108,7 +112,10 @@ def register_routers(app: FastAPI) -> None:
 
     # Подключаем основной API роутер к приложению
     app.include_router(api_router)
-    init_admin(app, base_url='/admin/database')
+    
+    # Указываем протокол для админки
+    base_url = '/admin/database'
+    init_admin(app, base_url=base_url)
 
 # Создание экземпляра приложения
 app = create_app()

@@ -45,5 +45,6 @@ Thumbs.db
 *~
 
 /myenv/
-/img/
+app/static/img/
 *.sqlite3
+*.db

@@ -21,6 +21,7 @@
             <div id="qr-code-container" hidden>
                 <h3>Ваш QR-код</h3>
                 <img id="qr-code-img" alt="QR Code" style="width: 200px; height: 200px;">
+                <button id="copy-link-btn" style="display: block; margin-top: 10px; padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Скопировать ссылку</button>
             </div>
             <div id="team-info" hidden>
                 <h3>Ваша команда</h3>
@@ -39,51 +40,80 @@
         </div>
     </div>
     <script>
-        const el = id => document.getElementById(id);
-        const show = id => el(id).hidden = false;
-        const hide = id => el(id).hidden = true;
-        const setText = (id, text) => el(id).textContent = text;
+        const el = selector => document.querySelector(selector);
+        const show = selector => el(selector).hidden = false;
+        const hide = selector => el(selector).hidden = true;
+        const setText = (selector, text) => el(selector).textContent = text;
 
         async function fetchUserData() {
             try {
-                const res = await fetch('/api/auth/me/');
-                if (!res.ok) throw new Error('Ошибка загрузки данных');
-                const { full_name, commands, role } = await res.json();
-                
-                setText('full_name', full_name);
-                show('user-info');
+                const [userRes, qrRes] = await Promise.all([
+                    fetch('/api/auth/me/'),
+                    fetch('/api/auth/qr')
+                ]);
 
-                // Показываем кнопку админки только для пользователей с ролью organizer
+                if (!userRes.ok || !qrRes.ok) throw new Error('Ошибка загрузки данных');
+
+                const { full_name, commands, role } = await userRes.json();
+                const { qr_image, qr_link } = await qrRes.json();
+
+                setText('#full_name', full_name);
+                show('#user-info');
+
                 if (role?.name === 'organizer') {
-                    show('admin-panel-btn-container');
+                    show('#admin-panel-btn-container');
                 }
 
-                // Загрузка QR-кода
-                const qrRes = await fetch('/api/auth/qr');
-                if (qrRes.ok) {
-                    const blob = await qrRes.blob();
-                    const url = URL.createObjectURL(blob);
-                    el('qr-code-img').src = url;
-                    show('qr-code-container');
-                }
+                el('#qr-code-img').src = `data:image/png;base64,${qr_image}`;
+                show('#qr-code-container');
+
+                el('#copy-link-btn').onclick = () => handleCopyLink(qr_link);
 
                 if (commands?.length) {
                     const team = commands[0];
                     if (team) {
-                        setText('team-name-info', `${team.name} ${team.participants.length}/6`);
-                        
-                        el('team-participants').innerHTML = team.participants
+                        setText('#team-name-info', `${team.name} ${team.participants.length}/6`);
+                        el('#team-participants').innerHTML = team.participants
                             .map(p => `<p>${p.role === 'captain' ? 'к ' : ''}${p.full_name}</p>`)
                             .join('');
-                        show('team-info');
+                        show('#team-info');
                     } else {
-                        show('create-team');
+                        show('#create-team');
                     }
                 } else {
-                    show('create-team');
+                    show('#create-team');
                 }
             } catch {
                 window.location.href = '/registration';
+            }
+        }
+
+        async function handleCopyLink(qr_link) {
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(qr_link);
+                } else {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = qr_link;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                }
+
+                const copyButton = el('#copy-link-btn');
+                copyButton.textContent = 'Скопировано!';
+                copyButton.style.backgroundColor = '#4CAF50';
+                copyButton.disabled = true;
+
+                setTimeout(() => {
+                    copyButton.textContent = 'Скопировать ссылку';
+                    copyButton.style.backgroundColor = '#007bff';
+                    copyButton.disabled = false;
+                }, 2000);
+            } catch (error) {
+                console.error('Ошибка при копировании ссылки:', error);
+                alert('Не удалось скопировать ссылку: ' + error.message);
             }
         }
 
@@ -93,29 +123,19 @@
             window.location.reload();
         };
 
-        el('logout-btn').onclick = () => handleRequest('/api/auth/logout', 'POST');
-        
-        el('create-team-form').onsubmit = async e => {
+        el('#logout-btn').onclick = () => handleRequest('/api/auth/logout', 'POST');
+
+        el('#create-team-form').onsubmit = async e => {
             e.preventDefault();
             try {
                 await handleRequest('/api/auth/command/create', 'POST', 
-                    JSON.stringify({ name: el('team-name-input').value }));
+                    JSON.stringify({ name: el('#team-name-input').value }));
             } catch (e) {
-                setText('team-error', e.message);
-                show('team-error');
+                setText('#team-error', e.message);
+                show('#team-error');
             }
         };
 
-        // el('leave-team-btn').onclick = async () => {
-        //     if (confirm('Вы уверены, что хотите покинуть команду?')) {
-        //         try {
-        //             await handleRequest('/api/auth/command/leave', 'POST');
-        //         } catch (e) {
-        //             alert(e.message);
-        //         }
-        //     }
-        // };
-        
         fetchUserData();
     </script>
 </body>

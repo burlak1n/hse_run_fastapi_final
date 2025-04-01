@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Response, Depends
+from fastapi import APIRouter, Response, Depends, Body
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 import io
+import base64
 
 from app.auth.models import User, CommandsUser, Command
 from app.auth.utils import set_tokens, generate_qr_image
@@ -11,7 +12,7 @@ from app.dependencies.dao_dep import get_session_with_commit, get_session_withou
 from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
 from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo
 from fastapi.responses import JSONResponse, StreamingResponse
-from app.exceptions import InternalServerErrorException, TokenExpiredException, UserNotFoundException
+from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
 from app.config import settings
 
@@ -144,14 +145,21 @@ async def get_me_qr_code(
     session_token: str = Depends(get_access_token),
 ):
     # Генерация QR-кода с ссылкой на эндпоинт проверки
-    qr_data = generate_qr_image(f"{settings.BASE_URL}/api/auth/qr/verify?token={session_token}")
-    return StreamingResponse(io.BytesIO(qr_data), media_type="image/png")
+    qr_link = f"{settings.BASE_URL}/qr/verify?token={session_token}"
+    qr_data = generate_qr_image(qr_link)
+    
+    # Возвращаем JSON с ссылкой и изображением
+    return JSONResponse({
+        "qr_link": qr_link,
+        "qr_image": base64.b64encode(qr_data).decode("utf-8")  # Кодируем изображение в base64
+    })
+class QRVerifyRequest(BaseModel):
+    token: str
 
-
-@router.get("/qr/verify")
+@router.post("/qr/verify")
 async def verify_qr(
-    token: str,
-    scanner_user: User = Depends(get_current_user),  # Пользователь, который сканирует
+    request: QRVerifyRequest,
+    scanner_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session_without_commit)
 ):
     """
@@ -160,40 +168,45 @@ async def verify_qr(
     - guest: добавляет в команду
     - insider/organizer: возвращает информацию о команде
     """
-    # Получаем пользователя, чей QR сканируют, через get_current_user
-    try:
-        qr_user = await get_current_user(token, session)
-    except (TokenExpiredException, UserNotFoundException):
-        return {
-            "ok": False,
-            "message": "Недействительный QR-код"
-        }
+    logger.info(f"Начало проверки QR-кода. Сканирующий пользователь: {scanner_user.id}")
     
-    commands_dao = CommandsDAO(session)
+    # Получаем пользователя, чей QR сканируют, через get_current_user
+    qr_user = await get_current_user(request.token, session)
+    if not qr_user:
+        raise TokenExpiredException
+
+    logger.info(f"Пользователь по QR-коду найден: {qr_user.id}")
+
+    users_dao = UsersDAO(session)
     commands_users_dao = CommandsUsersDAO(session)
     roles_dao = RolesDAO(session)
     
     # Получаем команду пользователя, чей QR сканируют
-    qr_user_command = await commands_dao.find_user_command_in_event(user_id=qr_user.id)
+    qr_user_command = await users_dao.find_user_command_in_event(user_id=qr_user.id)
     if not qr_user_command:
+        logger.warning(f"Пользователь {qr_user.id} не состоит в команде")
         return {
             "ok": False,
             "message": "Пользователь не состоит в команде"
         }
     
+    # TODO: сканирует капитан - заглушка
     # Проверяем, что qr_user является капитаном команды
-    qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
-    if qr_user_role != "captain":
-        return {
-            "ok": False,
-            "message": "Пользователь не является капитаном команды"
-        }
+    # qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
+    # if qr_user_role != "captain":
+    #     return {
+    #         "ok": False,
+    #         "message": "Пользователь не является капитаном команды"
+    #     }
     
     # Обработка в зависимости от роли сканирующего
     if scanner_user.role.name == "guest":
+        logger.info(f"Сканирующий пользователь {scanner_user.id} имеет роль 'guest'")
+        
         # Проверяем, не состоит ли уже пользователь в команде
-        scanner_user_command = await commands_dao.find_user_command_in_event(user_id=scanner_user.id)
+        scanner_user_command = await users_dao.find_user_command_in_event(user_id=scanner_user.id)
         if scanner_user_command:
+            logger.warning(f"Пользователь {scanner_user.id} уже состоит в команде {scanner_user_command.id}")
             return {
                 "ok": False,
                 "message": "Вы уже состоите в другой команде"
@@ -201,6 +214,7 @@ async def verify_qr(
         
         # Проверяем, не состоит ли пользователь уже в этой команде
         if any(cu.user_id == scanner_user.id for cu in qr_user_command.users):
+            logger.warning(f"Пользователь {scanner_user.id} уже состоит в этой команде")
             return {
                 "ok": False,
                 "message": "Вы уже состоите в этой команде"
@@ -208,23 +222,29 @@ async def verify_qr(
         
         # Проверяем максимальное количество участников
         if len(qr_user_command.users) >= 6:
+            logger.warning(f"Команда {qr_user_command.id} уже имеет максимальное количество участников")
             return {
                 "ok": False,
                 "message": "В команде уже максимальное количество участников"
             }
         
-        # Получаем ID роли участника
-        participant_role = await roles_dao.find_one_or_none(filters={"name": "participant"})
-        if not participant_role:
-            raise InternalServerErrorException(detail="Роль участника не найдена")
+        # Получаем ID роли гостя через Pydantic модель
+        class RoleFilter(BaseModel):
+            name: str
+
+        guest_role = await roles_dao.find_one_or_none(filters=RoleFilter(name="guest"))
+        if not guest_role:
+            logger.error("Роль гостя не найдена")
+            raise InternalServerErrorException(detail="Роль гостя не найдена")
         
         # Добавляем пользователя в команду
         await commands_users_dao.add(CommandsUserBase(
             command_id=qr_user_command.id,
             user_id=scanner_user.id,
-            role_id=participant_role.id
+            role_id=guest_role.id
         ))
         
+        logger.info(f"Пользователь {scanner_user.id} успешно добавлен в команду {qr_user_command.id}")
         return {
             "ok": True,
             "message": "Вы успешно добавлены в команду"
@@ -232,8 +252,16 @@ async def verify_qr(
     
     # Для insider и organizer возвращаем информацию о команде
     elif scanner_user.role.name in ["insider", "organizer"]:
+        logger.info(f"Сканирующий пользователь {scanner_user.id} имеет роль {scanner_user.role.name}")
         return {
             "ok": True,
+            "user": {
+                "id": qr_user.id,
+                "full_name": qr_user.full_name,
+                "role": qr_user.role.name,
+                "telegram_id": qr_user.telegram_id,
+                "telegram_username": qr_user.telegram_username
+            },
             "command": {
                 "id": qr_user_command.id,
                 "name": qr_user_command.name,
@@ -250,6 +278,7 @@ async def verify_qr(
         }
     
     # Для других ролей возвращаем ошибку
+    logger.warning(f"Роль {scanner_user.role.name} не позволяет выполнить это действие")
     return {
         "ok": False,
         "message": "Ваша роль не позволяет выполнить это действие"

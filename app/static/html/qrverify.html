@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR-код</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .result-container {
+            margin-top: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 15px;
+            display: none;
+        }
+        .user-info, .command-info, .participant-list {
+            margin-bottom: 15px;
+        }
+        .action-buttons {
+            margin-top: 20px;
+            display: none;
+        }
+        .btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .btn-points {
+            background-color: #2196F3;
+        }
+        .btn-attendance {
+            background-color: #FF9800;
+        }
+    </style>
+    <script>
+        // Получаем токен из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+
+        // Отправляем запрос на сервер для верификации токена
+        async function verifyToken() {
+            try {
+                const response = await fetch('/api/auth/qr/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.ok) {
+                    // В случае успешной верификации
+                    document.getElementById('status').textContent = 'Верификация прошла успешно!';
+                    
+                    // Отображаем результат
+                    if (result.user && result.command) {
+                        showUserInfo(result.user, result.command);
+                    }
+                } else {
+                    // В случае ошибки
+                    document.getElementById('status').textContent = result.message || 'Ошибка верификации';
+                }
+            } catch (error) {
+                document.getElementById('status').textContent = 'Ошибка сети';
+                console.error(error);
+            }
+        }
+
+        // Функция для отображения информации о пользователе и команде
+        function showUserInfo(user, command) {
+            const resultContainer = document.getElementById('result-container');
+            resultContainer.style.display = 'block';
+            
+            // Отображаем информацию о пользователе
+            const userInfo = document.getElementById('user-info');
+            userInfo.innerHTML = `
+                <h3>Информация о пользователе</h3>
+                <p><strong>ID:</strong> ${user.id}</p>
+                <p><strong>Имя:</strong> ${user.full_name}</p>
+                <p><strong>Роль:</strong> ${user.role}</p>
+                <p><strong>Telegram ID:</strong> ${user.telegram_id}</p>
+                <p><strong>Telegram Username:</strong> ${user.telegram_username || 'Не указано'}</p>
+            `;
+            
+            // Отображаем информацию о команде
+            const commandInfo = document.getElementById('command-info');
+            commandInfo.innerHTML = `
+                <h3>Информация о команде</h3>
+                <p><strong>ID:</strong> ${command.id}</p>
+                <p><strong>Название:</strong> ${command.name}</p>
+                <p><strong>ID события:</strong> ${command.event_id}</p>
+            `;
+            
+            // Отображаем список участников
+            const participantList = document.getElementById('participant-list');
+            participantList.innerHTML = '<h3>Участники команды</h3>';
+            
+            const ul = document.createElement('ul');
+            command.participants.forEach(participant => {
+                const li = document.createElement('li');
+                li.innerHTML = `${participant.full_name} - <i>${participant.role}</i>`;
+                ul.appendChild(li);
+            });
+            
+            participantList.appendChild(ul);
+            
+            // Показываем кнопки действий для организаторов и инсайдеров
+            if (user.role === 'organizer' || user.role === 'insider') {
+                const actionButtons = document.getElementById('action-buttons');
+                actionButtons.style.display = 'block';
+            }
+        }
+        
+        // Функция для изменения баллов команды
+        function changePoints() {
+            alert('Функциональность изменения баллов будет добавлена позднее');
+            // Здесь будет логика для изменения баллов
+        }
+        
+        // Функция для отметки посещения
+        function markAttendance() {
+            alert('Функциональность отметки посещения будет добавлена позднее');
+            // Здесь будет логика для отметки посещения
+        }
+
+        // Вызываем функцию верификации при загрузке страницы
+        window.onload = verifyToken;
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>QR-код</h1>
+        <p id="status">Проверка токена...</p>
+        
+        <div id="result-container" class="result-container">
+            <div id="user-info" class="user-info"></div>
+            <div id="command-info" class="command-info"></div>
+            <div id="participant-list" class="participant-list"></div>
+            
+            <div id="action-buttons" class="action-buttons">
+                <button onclick="changePoints()" class="btn btn-points">Изменить баллы</button>
+                <button onclick="markAttendance()" class="btn btn-attendance">Отметить посещение</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

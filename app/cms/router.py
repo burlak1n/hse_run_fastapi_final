@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import uuid
 
+from app.config import DEBUG
 from app.dao.database import engine
 from app.cms import views
 from app.dependencies.auth_dep import get_access_token
@@ -548,6 +549,10 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
             # Добавляем кеширование для статических файлов
             if request.url.path.startswith("/admin/statics"):
                 response.headers["Cache-Control"] = "public, max-age=3600"
+
+                if not DEBUG:   
+                    # Добавляем заголовок для обеспечения безопасности контента
+                    response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
             return response
             
         # Получаем и проверяем пользователя
@@ -565,7 +570,11 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
         # Сохраняем пользователя в запросе для использования в представлениях
         request.scope["user"] = user
         
-        return await call_next(request)
+        # Добавляем заголовок для обеспечения безопасности контента
+        response = await call_next(request)
+        if not DEBUG:
+            response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
+        return response
 
 
 def require_organizer_role(func: Callable[..., T]) -> Callable[..., T]:
