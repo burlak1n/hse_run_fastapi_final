@@ -84,10 +84,6 @@ def register_routers(app: FastAPI) -> None:
         @root_router.get("/profile", tags=["profile"])
         async def profile_page(request: Request):
             return render_template(request, "profile.html")
-
-        @root_router.get("/qr/verify", tags=["qr_verify"])
-        async def qr_verify_page(request: Request):
-            return render_template(request, "qrverify.html")
     else:
         pass
         # @root_router.get("/", tags=["root"])
@@ -102,6 +98,11 @@ def register_routers(app: FastAPI) -> None:
         # async def serve_vue_app(full_path: str):
         #     return FileResponse(os.path.join(frontend_path, "index.html"))
     # Создаем основной API роутер
+
+    @root_router.get("/qr/verify", tags=["qr_verify"])
+    async def qr_verify_page(request: Request):
+        return render_template(request, "qrverify.html")
+
     app.include_router(root_router)
 
     api_router = APIRouter(prefix='/api')
@@ -109,6 +110,8 @@ def register_routers(app: FastAPI) -> None:
     # Подключаем все роутеры к API роутеру
     api_router.include_router(router_auth, prefix='/auth', tags=['Auth'])
     api_router.include_router(router_quest, prefix='/quest', tags=['Quest'])
+
+
 
     # Подключаем основной API роутер к приложению
     app.include_router(api_router)
