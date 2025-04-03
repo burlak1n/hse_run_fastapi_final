@@ -130,7 +130,7 @@
                 hideModal('#edit-team-modal');
                 
                 const [userRes, qrRes] = await Promise.all([
-                    fetch('/api/auth/me/'),
+                    fetch('/api/auth/me'),
                     fetch('/api/auth/qr')
                 ]);
 
