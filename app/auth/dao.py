@@ -251,6 +251,28 @@ class EventsDAO(BaseDAO):
             logger.error(f"Ошибка при получении ID события по имени '{event_name}': {e}")
             raise
 
+    async def is_event_active(self, event_id: int) -> bool:
+        """
+        Проверяет, активно ли событие в данный момент
+
+        Args:
+            event_id: ID события
+
+        Returns:
+            True, если событие активно, иначе False
+        """
+        try:
+            query = select(self.model).where(
+                self.model.id == event_id,
+                self.model.start_time <= datetime.now(timezone.utc),
+                self.model.end_time >= datetime.now(timezone.utc)
+            )
+            result = await self._session.execute(query)
+            return result.scalar_one_or_none() is not None
+        except Exception as e:
+            logger.error(f"Ошибка при проверке активности события {event_id}: {e}")
+            raise
+
 class SessionDAO(BaseDAO):
     model = Session
 

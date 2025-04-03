@@ -111,8 +111,6 @@ def register_routers(app: FastAPI) -> None:
     api_router.include_router(router_auth, prefix='/auth', tags=['Auth'])
     api_router.include_router(router_quest, prefix='/quest', tags=['Quest'])
 
-
-
     # Подключаем основной API роутер к приложению
     app.include_router(api_router)
     

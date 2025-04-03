@@ -84,6 +84,8 @@ class Command(Base):
 
 class Event(Base):
     name: Mapped[str]
+    start_time: Mapped[datetime] = mapped_column(nullable=True)
+    end_time: Mapped[datetime] = mapped_column(nullable=True)
     # Связь с командами
     commands: Mapped[list["Command"]] = relationship("Command", back_populates="event")
 

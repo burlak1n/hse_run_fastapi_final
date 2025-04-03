@@ -37,16 +37,17 @@ class UserAdmin(ModelView, model=User):
 class RoleAdmin(ModelView, model=Role):
     column_list = [Role.id, Role.name]
     form_columns = [Role.name]
-
 class EventAdmin(ModelView, model=Event):
     column_list = [
         Event.id,
         Event.name,
         Event.commands,
+        Event.start_time,
+        Event.end_time,
         Event.created_at,
         Event.updated_at
     ]
-    form_columns = [Event.name]
+    form_columns = [Event.name, Event.start_time, Event.end_time]
 
 
 class CommandAdmin(ModelView, model=Command):
