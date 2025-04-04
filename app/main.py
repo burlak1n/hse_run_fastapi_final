@@ -1,17 +1,153 @@
 from contextlib import asynccontextmanager
 import os
-from typing import AsyncGenerator
-from fastapi import FastAPI, APIRouter, Request
+from typing import AsyncGenerator, List, Dict, Any
+from fastapi import FastAPI, APIRouter, Request, Response, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+import traceback
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
+import time
+import urllib.parse
 
 from app.quest.router import router as router_quest
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
 from app.utils.template import render_template
-from app.config import event_config, DEBUG
+from app.config import event_config, DEBUG, BASE_URL
+
+# Настройки безопасности
+# Получаем домен из BASE_URL для добавления в разрешенные хосты и источники
+parsed_url = urllib.parse.urlparse(BASE_URL)
+base_domain = parsed_url.netloc
+base_scheme = parsed_url.scheme
+
+# Добавляем gopass.dev и hserun.gopass.dev в разрешенные хосты
+ALLOWED_HOSTS = [
+    "localhost", "127.0.0.1", "server", 
+    "hse-run.ru", "*.hse-run.ru", 
+    "gopass.dev", "*.gopass.dev", 
+    base_domain
+]
+
+ALLOWED_ORIGINS = [
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://localhost:8000",
+    "http://server",
+    "https://hse-run.ru",
+    "https://*.hse-run.ru",
+    "https://gopass.dev",
+    "https://*.gopass.dev",
+    BASE_URL,  # Добавляем полный URL из конфига
+    f"{base_scheme}://{base_domain}"  # Добавляем URL с извлеченным доменом
+]
+# Максимальный размер тела запроса (10 МБ)
+MAX_BODY_SIZE = 3 * 1024 * 1024  
+# Ограничение количества запросов (100 запросов в минуту)
+RATE_LIMIT = 100
+RATE_PERIOD = 60  # секунд
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Middleware для ограничения количества запросов с одного IP."""
+    
+    def __init__(self, app, rate_limit=RATE_LIMIT, period=RATE_PERIOD):
+        super().__init__(app)
+        self.rate_limit = rate_limit
+        self.period = period
+        self.ips = {}
+        
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host
+        current_time = time.time()
+        
+        # Очистка устаревших записей
+        if client_ip in self.ips:
+            self.ips[client_ip] = [timestamp for timestamp in self.ips[client_ip] 
+                                if current_time - timestamp < self.period]
+        else:
+            self.ips[client_ip] = []
+            
+        # Проверка на превышение лимита
+        if len(self.ips[client_ip]) >= self.rate_limit:
+            return Response(
+                content="Too many requests", 
+                status_code=429,
+                headers={"Retry-After": str(self.period)}
+            )
+            
+        # Добавляем текущий запрос
+        self.ips[client_ip].append(current_time)
+        
+        # Пропускаем запрос дальше
+        response = await call_next(request)
+        return response
+
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Middleware для ограничения размера тела запроса."""
+    
+    def __init__(self, app, max_size: int = MAX_BODY_SIZE):
+        super().__init__(app)
+        self.max_size = max_size
+        
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.max_size:
+            return Response(
+                content="Request body too large", 
+                status_code=413
+            )
+            
+        response = await call_next(request)
+        return response
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware для добавления заголовков безопасности."""
+    
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Защита от XSS
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Защита от кликджекинга
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        # Защита от MIME-типов
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Запрет кеширования для приватных данных
+        if request.url.path.startswith(("/api/auth/me", "/api/quest")):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=3600"
+        
+        # HSTS для перенаправления на HTTPS
+        if not DEBUG:  # Только в production
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+        
+        # Устанавливаем политику реферера для приватных данных
+        if request.url.path.startswith("/api/"):
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        else:
+            response.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
+        
+        # Content-Security-Policy для защиты от XSS
+        # Включаем возможность подключения к домену из BASE_URL
+        base_domain_csp = f"{base_scheme}://{base_domain}"
+        if not request.url.path.startswith("/admin"):  # Не добавляем для админки
+            response.headers["Content-Security-Policy"] = (
+                f"default-src 'self' {base_domain_csp}; "
+                f"script-src 'self' 'unsafe-inline' {base_domain_csp}; "
+                f"style-src 'self' 'unsafe-inline' {base_domain_csp}; "
+                f"img-src 'self' data: {base_domain_csp}; "
+                f"connect-src 'self' {base_domain_csp}; "
+                "frame-ancestors 'self'; "
+                "form-action 'self'"
+            )
+        
+        return response
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
@@ -37,14 +173,110 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Настройка CORS
+    # Настройка глобальных обработчиков исключений
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        """Обработчик HTTP исключений."""
+        logger.error(f"HTTP ошибка {exc.status_code}: {exc.detail}")
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "ok": False,
+                "error": {
+                    "code": exc.status_code,
+                    "message": exc.detail,
+                    "type": "http_error"
+                }
+            }
+        )
+    
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Обработчик ошибок валидации запросов."""
+        errors = []
+        for error in exc.errors():
+            error_info = {
+                "field": ".".join(str(loc) for loc in error["loc"]) if "loc" in error else "",
+                "message": error["msg"],
+                "type": error["type"]
+            }
+            errors.append(error_info)
+            
+        logger.error(f"Ошибка валидации: {errors}")
+        
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "ok": False,
+                "error": {
+                    "code": 422,
+                    "message": "Ошибка валидации данных",
+                    "type": "validation_error",
+                    "details": errors
+                }
+            }
+        )
+    
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Обработчик общих исключений."""
+        error_id = f"{time.time():.0f}"  # Генерируем ID ошибки для отслеживания
+        
+        error_info = {
+            "path": request.url.path,
+            "method": request.method,
+            "error_id": error_id,
+            "error": str(exc),
+            "traceback": traceback.format_exc()
+        }
+        
+        logger.error(f"Неожиданная ошибка [{error_id}]: {str(exc)}\n{traceback.format_exc()}")
+        
+        response = {
+            "ok": False,
+            "error": {
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "message": "Внутренняя ошибка сервера",
+                "type": "server_error",
+                "error_id": error_id
+            }
+        }
+        
+        # В режиме отладки добавляем информацию об ошибке
+        if DEBUG:
+            response["error"]["debug_info"] = {
+                "exception": str(exc),
+                "traceback": traceback.format_exc()
+            }
+        
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=response
+        )
+
+    # Настройка CORS с более строгими ограничениями
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"]
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+        max_age=3600,  # 1 час
     )
+    
+    # Добавляем middleware для проверки хостов
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+    
+    # Добавляем middleware для безопасности
+    app.add_middleware(SecurityHeadersMiddleware)
+    
+    # Ограничиваем размер тела запроса
+    app.add_middleware(MaxBodySizeMiddleware)
+    
+    # Добавляем rate limiting только в production
+    if not DEBUG:
+        app.add_middleware(RateLimitMiddleware)
 
     # Монтирование статических файлов
     app.mount(

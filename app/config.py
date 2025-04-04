@@ -21,7 +21,7 @@ event_config = EventConfig()
 # Получаем параметры для загрузки переменных среды
 settings = Settings()
 database_url = settings.DB_URL
-
+BASE_URL = settings.BASE_URL
 SESSION_EXPIRE_SECONDS = timedelta(days=7).total_seconds()
 
 CURRENT_EVENT_NAME = "HSERUN29"
