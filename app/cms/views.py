@@ -1,7 +1,7 @@
 from sqladmin import ModelView
 from sqlalchemy import Select
 from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand
-from app.quest.models import Answer, Block, Question, AttemptType, Attempt
+from app.quest.models import Answer, Block, Question, AttemptType, Attempt, QuestionInsider
 from sqladmin.forms import FileField
 from fastapi import UploadFile, Request
 from app.logger import logger
@@ -37,16 +37,18 @@ class UserAdmin(ModelView, model=User):
 class RoleAdmin(ModelView, model=Role):
     column_list = [Role.id, Role.name]
     form_columns = [Role.name]
-
+    
 class EventAdmin(ModelView, model=Event):
     column_list = [
         Event.id,
         Event.name,
         Event.commands,
+        Event.start_time,
+        Event.end_time,
         Event.created_at,
         Event.updated_at
     ]
-    form_columns = [Event.name]
+    form_columns = [Event.name, Event.start_time, Event.end_time]
 
 
 class CommandAdmin(ModelView, model=Command):
@@ -81,7 +83,8 @@ class QuestionAdmin(ModelView, model=Question):
         Question.geo_answered,
         Question.text_answered,
         Question.image_path_answered,
-        Question.hint_path
+        Question.hint_path,
+        Question.answers,
     ]
 
     form_columns = [
@@ -93,6 +96,7 @@ class QuestionAdmin(ModelView, model=Question):
         Question.image_path_answered,
         Question.hint_path
     ]
+
     form_overrides = {
         'image_path': FileField,
         'image_path_answered': FileField,
@@ -117,17 +121,43 @@ class QuestionAdmin(ModelView, model=Question):
             return Markup(f'<a href="/static/img/{hint_path}" target="_blank">Посмотреть подсказку</a>')
         return Markup('')
 
+    def format_truncated_text(model, attribute) -> Markup:
+        full_text = getattr(model, attribute)
+        if full_text:
+            truncated = full_text[:30] + '...' if len(full_text) > 30 else full_text
+            return Markup(f'<span title="{full_text}">{truncated}</span>')
+        return Markup('')
+
+    def format_answer_text(model, attribute):
+        """Простой вывод текста ответов - по одному символю на ответ."""
+        answers = getattr(model, attribute)
+        if not answers:
+            return ""
+        
+        # Просто вернем первую букву каждого ответа
+        result = ""
+        for answer in answers:
+            text = getattr(answer, "answer_text", "")
+            if text and isinstance(text, str):
+                result += text[0]  # Берем только первый символ
+        
+        return result
+
     column_formatters = {
         "block": format_block_link,
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
-        "hint_path": format_hint_link
+        "text_answered": format_truncated_text,
+        "hint_path": format_image_url,
+        "answers": format_answer_text
     }
     column_formatters_detail = {
         "block": format_block_link,
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
-        "hint_path": format_hint_link
+        "hint_path": format_image_url,
+        "text_answered": format_truncated_text,
+        "answers": format_answer_text
     }
 
     @staticmethod
@@ -358,4 +388,21 @@ class AttemptAdmin(ModelView, model=Attempt):
         "user": format_user_link,
         "question": format_question_link,
         "attempt_type": format_attempt_type_link
+    }
+
+class QuestionInsiderAdmin(ModelView, model=QuestionInsider):
+    column_list = [
+        QuestionInsider.id,
+        QuestionInsider.question,
+        QuestionInsider.user
+    ]
+    form_columns = [
+        QuestionInsider.question,
+        QuestionInsider.user
+    ]
+    form_ajax_refs = {
+        'user': {
+            'fields': ['full_name', 'telegram_username'],
+            'order_by': 'full_name',
+        }
     }

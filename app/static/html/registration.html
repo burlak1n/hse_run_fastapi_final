@@ -23,7 +23,7 @@
             // Проверка сессии при загрузке страницы
             async function checkSession() {
                 try {
-                    const res = await fetch('/api/auth/me/');
+                    const res = await fetch('/api/auth/me');
                     if (res.ok) {
                         window.location.href = '/profile';
                     }

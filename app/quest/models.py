@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base
 from typing import Optional
@@ -32,7 +32,10 @@ class Question(Base):
     block: Mapped["Block"] = relationship("Block", back_populates="questions")
 
     # Добавляем связь с ответами
-    answers: Mapped[list["Answer"]] = relationship("Answer", back_populates="question")
+    answers: Mapped[list["Answer"]] = relationship("Answer", back_populates="question", cascade="all, delete-orphan")
+    
+    # Связь с инсайдерами
+    insiders: Mapped[list["QuestionInsider"]] = relationship("QuestionInsider", back_populates="question", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"Question(id={self.id}, title={self.title}, block_id={self.block_id})"
@@ -73,3 +76,18 @@ class Attempt(Base):
     question: Mapped["Question"] = relationship("Question")
     attempt_type: Mapped["AttemptType"] = relationship("AttemptType")
     
+class QuestionInsider(Base):
+    """Модель для связи вопросов с инсайдерами"""
+    __table_args__ = (
+        UniqueConstraint('question_id', 'user_id', name='unique_question_insider'),
+    )
+    
+    question_id: Mapped[int] = mapped_column(ForeignKey('questions.id'), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    
+    # Связи
+    question: Mapped["Question"] = relationship("Question", back_populates="insiders")
+    user: Mapped["User"] = relationship("User", back_populates="insider_questions")
+    
+    def __repr__(self):
+        return f"QuestionInsider(question_id={self.question_id}, user_id={self.user_id})"

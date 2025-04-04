@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
-from app.quest.models import Attempt, Block
+from app.quest.models import Attempt, Block, QuestionInsider
 
 class Role(Base):
     # "guest" "organizer" "insider" 
@@ -36,6 +36,9 @@ class User(Base):
 
     # Команды, где пользователь участник или капитан
     commands: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="user")
+    
+    # Вопросы, закрепленные за инсайдером
+    insider_questions: Mapped[list["QuestionInsider"]] = relationship("QuestionInsider", back_populates="user")
 
     def __repr__(self):
         return f"Ваш профиль:\nФИО: {self.full_name}\ntelegram_id: {self.telegram_id}\ntelegram_username: {self.telegram_username}"
@@ -84,6 +87,8 @@ class Command(Base):
 
 class Event(Base):
     name: Mapped[str]
+    start_time: Mapped[datetime] = mapped_column(nullable=True)
+    end_time: Mapped[datetime] = mapped_column(nullable=True)
     # Связь с командами
     commands: Mapped[list["Command"]] = relationship("Command", back_populates="event")
 

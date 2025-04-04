@@ -642,3 +642,27 @@ async def update_profile(
             content={"detail": "Не удалось обновить профиль. Пожалуйста, попробуйте позже."}
         )
 
+# Проверка активности события
+@router.get("/event/status")
+async def check_event_status(
+    session: AsyncSession = Depends(get_session_with_commit)
+):
+    """
+    Проверяет, активно ли текущее событие
+    
+    Returns:
+        JSON с полем is_active: True, если событие активно, иначе False
+    """
+    try:
+        events_dao = EventsDAO(session)
+        event_id = await events_dao.get_event_id_by_name()
+        
+        if not event_id:
+            return {"is_active": False}
+        
+        is_active = await events_dao.is_event_active(event_id)
+        return {"is_active": is_active}
+    except Exception as e:
+        logger.error(f"Ошибка при проверке активности события: {e}")
+        return {"is_active": False}
+
