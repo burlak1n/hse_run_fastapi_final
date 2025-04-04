@@ -205,6 +205,13 @@ async def verify_qr(
     - guest: показывает информацию о команде и возможность присоединения
     - insider/organizer: возвращает информацию о команде
     """
+    if not scanner_user:
+        logger.warning("Попытка проверки QR-кода неавторизованным пользователем")
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Необходима авторизация для проверки QR-кода"}
+        )
+    
     logger.info(f"Начало проверки QR-кода. Сканирующий пользователь: {scanner_user.id}")
     
     # Получаем пользователя, чей QR сканируют, через get_current_user
