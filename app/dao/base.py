@@ -18,8 +18,50 @@ class BaseDAO(Generic[T]):
         if self.model is None:
             raise ValueError("Модель должна быть указана в дочернем классе")
 
+    async def _validate_input(self, data: dict) -> dict:
+        """
+        Проверяет входные данные на потенциальные SQL-инъекции
+        
+        Args:
+            data: Словарь с данными для проверки
+            
+        Returns:
+            Проверенный словарь данных
+            
+        Raises:
+            ValueError: Если обнаружены потенциально опасные данные
+        """
+        import re
+        
+        # Паттерны потенциальных SQL-инъекций
+        sql_patterns = [
+            r"(\b(select|insert|update|delete|drop|alter|exec|union|where)\b)",
+            r"(--|;|\/\*|\*\/|@@|char|nchar|varchar|nvarchar|cursor|declare)",
+            r"(\bfrom\b.*\bwhere\b|\bunion\b.*\bselect\b)",
+            r"(xp_cmdshell|xp_reg|sp_configure|sp_executesql)"
+        ]
+        
+        for key, value in data.items():
+            if isinstance(value, str):
+                # Проверяем строку на наличие паттернов SQL-инъекций
+                value_lower = value.lower()
+                for pattern in sql_patterns:
+                    if re.search(pattern, value_lower):
+                        logger.warning(f"Обнаружен потенциально опасный ввод: {key}={value}")
+                        raise ValueError(f"Потенциально опасный ввод в поле '{key}'")
+                        
+                # Экранируем специальные символы
+                data[key] = value.replace("'", "''").replace("\\", "\\\\")
+        
+        return data
+
     async def find_one_or_none_by_id(self, data_id: int):
         try:
+            # Проверяем, что ID целое число
+            if not isinstance(data_id, int) or data_id < 0:
+                logger.error(f"Недопустимый ID: {data_id}")
+                raise ValueError("Недопустимый ID")
+                
             query = select(self.model).filter_by(id=data_id)
             result = await self._session.execute(query)
             record = result.unique().scalar_one_or_none()
@@ -31,9 +73,12 @@ class BaseDAO(Generic[T]):
             raise
 
     async def find_one_or_none(self, filters: BaseModel) -> Optional[T]:
-        filter_dict = filters.model_dump(exclude_unset=True)
-        logger.info(f"Поиск одной записи {self.model.__name__} по фильтрам: {filter_dict}")
         try:
+            filter_dict = filters.model_dump(exclude_unset=True)
+            # Проверяем входные данные
+            filter_dict = await self._validate_input(filter_dict)
+            
+            logger.info(f"Поиск одной записи {self.model.__name__} по фильтрам: {filter_dict}")
             query = select(self.model).filter_by(**filter_dict)
             result = await self._session.execute(query)
             record = result.unique().scalar_one_or_none()
@@ -45,9 +90,12 @@ class BaseDAO(Generic[T]):
             raise
 
     async def find_all(self, filters: BaseModel | None = None):
-        filter_dict = filters.model_dump(exclude_unset=True) if filters else {}
-        logger.info(f"Поиск всех записей {self.model.__name__} по фильтрам: {filter_dict}")
         try:
+            filter_dict = filters.model_dump(exclude_unset=True) if filters else {}
+            # Проверяем входные данные
+            filter_dict = await self._validate_input(filter_dict)
+            
+            logger.info(f"Поиск всех записей {self.model.__name__} по фильтрам: {filter_dict}")
             query = select(self.model).filter_by(**filter_dict)
             result = await self._session.execute(query)
             records = result.scalars().all()
@@ -58,9 +106,12 @@ class BaseDAO(Generic[T]):
             raise
 
     async def add(self, values: BaseModel):
-        values_dict = values.model_dump(exclude_unset=True)
-        logger.info(f"Добавление записи {self.model.__name__} с параметрами: {values_dict}")
         try:
+            values_dict = values.model_dump(exclude_unset=True)
+            # Проверяем входные данные
+            values_dict = await self._validate_input(values_dict)
+            
+            logger.info(f"Добавление записи {self.model.__name__} с параметрами: {values_dict}")
             new_instance = self.model(**values_dict)
             self._session.add(new_instance)
             logger.info(f"Запись {self.model.__name__} успешно добавлена.")

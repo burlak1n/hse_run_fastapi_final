@@ -63,10 +63,10 @@ class AttemptType(Base):
 
 class Attempt(Base):
     """Попытки / Транзакции пользователей"""
-    command_id: Mapped[int] = mapped_column(ForeignKey('commands.id'))
-    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
-    question_id: Mapped[Optional[int]] = mapped_column(ForeignKey('questions.id'))
-    attempt_type_id: Mapped[int] = mapped_column(ForeignKey('attempttypes.id'))
+    command_id: Mapped[int] = mapped_column(ForeignKey('commands.id', ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete="CASCADE"))
+    question_id: Mapped[Optional[int]] = mapped_column(ForeignKey('questions.id', ondelete="SET NULL"), nullable=True)
+    attempt_type_id: Mapped[int] = mapped_column(ForeignKey('attempttypes.id', ondelete="CASCADE"))
     attempt_text: Mapped[Optional[str]]
     is_true: Mapped[bool] = mapped_column(default=False) # Было ли начисление
 

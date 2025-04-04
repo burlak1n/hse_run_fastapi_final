@@ -158,21 +158,61 @@ class CommandsDAO(BaseDAO):
     
     async def delete_by_id(self, command_id: int):
         """
-        Удаляет команду по ID
+        Удаляет команду по ID с учётом всех связей (attempts, commandsusers)
         """
         logger.info(f"Удаление команды {command_id}")
         try:
+            # Получаем команду
             stmt = select(self.model).where(self.model.id == command_id)
             result = await self._session.execute(stmt)
             command = result.scalar_one_or_none()
             
-            if command:
-                await self._session.delete(command)
-                await self._session.commit()
-                logger.info(f"Команда {command_id} успешно удалена")
-            else:
+            if not command:
                 logger.warning(f"Команда {command_id} не найдена")
+                return
+                
+            # Удаляем команду (связи удалятся автоматически благодаря cascade)
+            await self._session.delete(command)
+            try:
+                await self._session.flush()
+                logger.info(f"Команда {command_id} успешно удалена")
+            except Exception as e:
+                # В случае ошибки сделаем rollback и выполним более детальное удаление
+                await self._session.rollback()
+                logger.warning(f"Ошибка при каскадном удалении команды: {e}, выполняем ручное удаление связей")
+                
+                # Удаляем связанные попытки
+                from app.quest.models import Attempt
+                attempt_stmt = select(Attempt).where(Attempt.command_id == command_id)
+                attempt_result = await self._session.execute(attempt_stmt)
+                attempts = attempt_result.scalars().all()
+                
+                for attempt in attempts:
+                    await self._session.delete(attempt)
+                
+                # Удаляем связи пользователей с командой
+                cu_stmt = select(CommandsUser).where(CommandsUser.command_id == command_id)
+                cu_result = await self._session.execute(cu_stmt)
+                command_users = cu_result.scalars().all()
+                
+                for cu in command_users:
+                    await self._session.delete(cu)
+                
+                # Теперь удаляем команду
+                stmt = select(self.model).where(self.model.id == command_id)
+                result = await self._session.execute(stmt)
+                command = result.scalar_one_or_none()
+                
+                if command:
+                    await self._session.delete(command)
+                
+                logger.info(f"Команда {command_id} успешно удалена вручную")
+            
+            # Завершаем транзакцию
+            await self._session.commit()
+            
         except Exception as e:
+            await self._session.rollback()
             logger.error(f"Ошибка при удалении команды: {e}")
             raise
     

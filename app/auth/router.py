@@ -554,11 +554,7 @@ async def delete_command(
                 content={"detail": "Только капитан может удалить команду"}
             )
         
-        # Удаляем связи пользователей с командой
-        commands_users_dao = CommandsUsersDAO(session)
-        await commands_users_dao.delete_by_command_id(command.id)
-        
-        # Удаляем команду
+        # Удаляем команду напрямую - связи удалятся автоматически благодаря каскадному удалению
         commands_dao = CommandsDAO(session)
         await commands_dao.delete_by_id(command.id)
         

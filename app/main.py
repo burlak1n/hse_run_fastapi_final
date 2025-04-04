@@ -49,7 +49,7 @@ ALLOWED_ORIGINS = [
 # Максимальный размер тела запроса (10 МБ)
 MAX_BODY_SIZE = 3 * 1024 * 1024  
 # Ограничение количества запросов (100 запросов в минуту)
-RATE_LIMIT = 100
+RATE_LIMIT = 300
 RATE_PERIOD = 60  # секунд
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -148,6 +148,59 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
         
         return response
+
+class SQLInjectionProtectionMiddleware(BaseHTTPMiddleware):
+    """Middleware для защиты от SQL-инъекций."""
+    
+    def __init__(self, app):
+        super().__init__(app)
+        # Паттерны для обнаружения возможных SQL-инъекций
+        self.sql_patterns = [
+            r"(\b(select|insert|update|delete|drop|alter|exec|union|where)\b)",
+            r"(--|;|\/\*|\*\/|@@|char|nchar|varchar|nvarchar|cursor|declare)",
+            r"(\bfrom\b.*\bwhere\b|\bunion\b.*\bselect\b)",
+            r"(xp_cmdshell|xp_reg|sp_configure|sp_executesql)"
+        ]
+    
+    async def dispatch(self, request: Request, call_next):
+        # Проверяем только запросы с телом
+        if request.method in ["POST", "PUT", "PATCH"]:
+            try:
+                # Получаем тело запроса
+                body = await request.json()
+                
+                # Проверяем на наличие паттернов SQL-инъекций
+                if self._check_sql_injection(body):
+                    logger.warning(f"Обнаружена попытка SQL-инъекции: {body}")
+                    return JSONResponse(
+                        status_code=400,
+                        content={"detail": "Недопустимые данные запроса"}
+                    )
+            except Exception:
+                # Если не удалось прочитать JSON, продолжаем обработку
+                pass
+        
+        # Продолжаем обработку запроса
+        response = await call_next(request)
+        return response
+    
+    def _check_sql_injection(self, data):
+        """Проверяет данные на наличие паттернов SQL-инъекций"""
+        import re
+        
+        # Рекурсивно проверяем все строковые значения
+        if isinstance(data, dict):
+            return any(self._check_sql_injection(v) for v in data.values())
+        elif isinstance(data, list):
+            return any(self._check_sql_injection(item) for item in data)
+        elif isinstance(data, str):
+            # Проверяем каждый паттерн
+            data_lower = data.lower()
+            for pattern in self.sql_patterns:
+                if re.search(pattern, data_lower):
+                    return True
+        
+        return False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
@@ -277,6 +330,9 @@ def create_app() -> FastAPI:
     # Добавляем rate limiting только в production
     if not DEBUG:
         app.add_middleware(RateLimitMiddleware)
+
+    # Добавляем защиту от SQL-инъекций
+    app.add_middleware(SQLInjectionProtectionMiddleware)
 
     # Монтирование статических файлов
     app.mount(

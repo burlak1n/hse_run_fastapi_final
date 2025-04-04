@@ -47,8 +47,8 @@ class User(Base):
 class Command(Base):
     name: Mapped[str]
 
-    # Участники команды (включая капитана)
-    users: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="command")
+    # Участники команды (включая капитана) с cascade delete
+    users: Mapped[list["CommandsUser"]] = relationship("CommandsUser", back_populates="command", cascade="all, delete-orphan")
 
     # Связь с мероприятием
     event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False)
@@ -58,7 +58,8 @@ class Command(Base):
     language_id: Mapped[int] = mapped_column(ForeignKey('languages.id'), nullable=False, default=1)
     language: Mapped["Language"] = relationship("Language", back_populates="commands")
 
-    attempts: Mapped[list["Attempt"]] = relationship("Attempt", back_populates="command")
+    # Связь с попытками
+    attempts: Mapped[list["Attempt"]] = relationship("Attempt", back_populates="command", cascade="all, delete-orphan")
 
     def __repr__(self):
         return self.name
