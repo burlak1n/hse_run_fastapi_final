@@ -1,6 +1,6 @@
 from sqladmin import ModelView
 from sqlalchemy import Select
-from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand
+from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand, Session, CommandsUser
 from app.quest.models import Answer, Block, Question, AttemptType, Attempt, QuestionInsider
 from sqladmin.forms import FileField
 from fastapi import UploadFile, Request
@@ -406,3 +406,33 @@ class QuestionInsiderAdmin(ModelView, model=QuestionInsider):
             'order_by': 'full_name',
         }
     }
+
+class SessionAdmin(ModelView, model=Session):
+    column_list = [
+        Session.id,
+        Session.user_id,
+        Session.token,
+        Session.created_at,
+        Session.expires_at,
+        Session.is_active
+    ]
+    form_columns = [
+        Session.user_id,
+        Session.created_at,
+        Session.expires_at,
+        Session.is_active
+    ]
+
+class CommandsUserAdmin(ModelView, model=CommandsUser):
+    column_list = [
+        CommandsUser.command,
+        CommandsUser.user,
+        CommandsUser.role
+    ]
+    form_columns = [
+        CommandsUser.command,
+        CommandsUser.user,
+        CommandsUser.role
+    ]
+    
+    

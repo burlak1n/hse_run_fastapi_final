@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QR-код</title>
     <!-- <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests"> -->
-    <link rel="stylesheet" href="/static/css/styles.css">
     <style>
         .container {
             max-width: 600px;
@@ -159,13 +158,10 @@
             document.getElementById('status').style.backgroundColor = '#d4edda'; // Зеленый фон
             
             // Сохраняем результат
-            if (result.user) {
-                currentUser = result.user;
-                qrData = result;
-                
-                // Обрабатываем результат в зависимости от роли
-                handleRoleSpecificView();
-            }
+            qrData = result;
+            
+            // Определяем, какое отображение показать
+            determineUserView();
         }
         
         /**
@@ -176,7 +172,7 @@
             document.getElementById('status').textContent = 'Ошибка сервера';
             document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
             
-            showErrorMessage('Произошла ошибка на сервере. Пожалуйста, попробуйте позже или обратитесь к организаторам.');
+            showErrorMessage('Произошла ошибка на сервере. Пожалуйста, обратитесь к организаторам.');
             createRetryButton();
         }
         
@@ -307,22 +303,60 @@
         }
 
         /**
-         * Определяет отображение UI в зависимости от роли пользователя
+         * Определяет отображение UI в зависимости от ответа API
          */
-        function handleRoleSpecificView() {
-            if (!currentUser) return;
+        function determineUserView() {
+            if (!qrData) return;
             
-            // Для гостей
-            if (currentUser.role === 'guest') {
-                handleGuestView();
+            // Если пользователь уже в команде - показать сообщение об этом
+            if (qrData.scanner_is_in_team) {
+                showGuestMessage("Вы уже состоите в команде и не можете присоединиться к другой");
+                
+                // Если это организатор/инсайдер, все равно показываем информацию о команде
+                if (qrData.scanner_role && qrData.user && qrData.command) {
+                    if (qrData.scanner_role === 'organizer') {
+                        handleOrganizerView();
+                    } else if (qrData.scanner_role === 'insider') {
+                        handleInsiderView();
+                    }
+                }
+                return;
             }
-            // Для инсайдеров
-            else if (currentUser.role === 'insider') {
-                handleInsiderView();
+            
+            // Если можно присоединиться к команде (для любой роли)
+            if (qrData.can_join) {
+                // Если это организатор/инсайдер, показываем информацию о команде и кнопку присоединения
+                if (qrData.scanner_role && qrData.user && qrData.command) {
+                    if (qrData.scanner_role === 'organizer') {
+                        handleOrganizerView();
+                    } else if (qrData.scanner_role === 'insider') {
+                        handleInsiderView();
+                    }
+                }
+                // Показываем кнопку присоединения
+                showJoinConfirmation(qrData.command_name, qrData.captain_name, qrData.token);
+                return;
             }
-            // Для организаторов
-            else if (currentUser.role === 'organizer') {
-                handleOrganizerView();
+            
+            // Если это организатор/инсайдер и нет возможности присоединиться, просто показываем информацию
+            if (qrData.scanner_role && qrData.user && qrData.command) {
+                if (qrData.scanner_role === 'organizer') {
+                    handleOrganizerView();
+                } else if (qrData.scanner_role === 'insider') {
+                    handleInsiderView();
+                }
+                return;
+            }
+            
+            // Если успешно добавились в команду
+            if (qrData.message === "Вы успешно добавлены в команду") {
+                showGuestMessage(qrData.message);
+                return;
+            }
+            
+            // Для ошибок и других сообщений
+            if (qrData.message) {
+                showGuestMessage(qrData.message);
             }
         }
         
@@ -364,21 +398,21 @@
         }
         
         // Показать подтверждение присоединения
-        function showJoinConfirmation() {
+        function showJoinConfirmation(commandName, captainName, token) {
             const confirmBox = document.createElement('div');
             confirmBox.className = 'confirmation-box';
             confirmBox.style.display = 'block';
             confirmBox.innerHTML = `
                 <h3>Присоединиться к команде?</h3>
-                <p>Вы хотите присоединиться к команде "${qrData.command?.name}", принадлежащей ${qrData.user?.full_name}?</p>
-                <button onclick="joinTeam()" class="btn btn-join">Да, присоединиться</button>
+                <p>Вы хотите присоединиться к команде "${commandName}", капитан: ${captainName}?</p>
+                <button onclick="joinTeam('${token}')" class="btn btn-join">Да, присоединиться</button>
                 <button onclick="cancelJoin()" class="btn btn-cancel">Отмена</button>
             `;
             document.querySelector('.container').appendChild(confirmBox);
         }
         
         // Функция для присоединения к команде
-        async function joinTeam() {
+        async function joinTeam(token) {
             // Блокируем кнопки во время запроса
             const joinBtn = document.querySelector('.btn-join');
             const cancelBtn = document.querySelector('.btn-cancel');
@@ -390,7 +424,7 @@
             
             // Отправляем запрос на сервер
             try {
-                const response = await fetch('/api/auth/qr/verify', {
+                const response = await fetch('/api/auth/command/join', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -402,12 +436,14 @@
                 
                 if (response.ok && result.ok) {
                     // В случае успешного присоединения
-                    document.getElementById('status').textContent = 'Верификация прошла успешно!';
+                    document.getElementById('status').textContent = 'Успешно!';
+                    document.getElementById('status').style.backgroundColor = '#d4edda'; // Зеленый фон
                     showGuestMessage('Вы успешно присоединились к команде!');
                     document.querySelector('.confirmation-box').style.display = 'none';
                 } else {
                     // В случае ошибки
                     document.getElementById('status').textContent = 'Ошибка при присоединении';
+                    document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
                     showGuestMessage(result.message || 'Не удалось присоединиться к команде');
                     
                     // Разблокируем кнопки
@@ -416,6 +452,7 @@
                 }
             } catch (error) {
                 document.getElementById('status').textContent = 'Ошибка сети';
+                document.getElementById('status').style.backgroundColor = '#f8d7da'; // Красный фон
                 showGuestMessage('Ошибка сети');
                 console.error(error);
                 
@@ -454,11 +491,7 @@
         
         // Обработка для организаторов
         function handleOrganizerView() {
-            showUserInfo(qrData.user, qrData.command);
-        }
-
-        // Функция для отображения полной информации о пользователе и команде (для организаторов)
-        function showUserInfo(user, command) {
+            // Получаем элементы контейнера
             const resultContainer = document.getElementById('result-container');
             resultContainer.style.display = 'block';
             
@@ -466,20 +499,20 @@
             const userInfo = document.getElementById('user-info');
             userInfo.innerHTML = `
                 <h3>Информация о пользователе</h3>
-                <p><strong>ID:</strong> ${user.id}</p>
-                <p><strong>Имя:</strong> ${user.full_name}</p>
-                <p><strong>Роль:</strong> ${user.role}</p>
-                <p><strong>Telegram ID:</strong> ${user.telegram_id}</p>
-                <p><strong>Telegram Username:</strong> ${user.telegram_username || 'Не указано'}</p>
+                <p><strong>ID:</strong> ${qrData.user.id}</p>
+                <p><strong>Имя:</strong> ${qrData.user.full_name}</p>
+                <p><strong>Роль:</strong> ${qrData.user.role}</p>
+                <p><strong>Telegram ID:</strong> ${qrData.user.telegram_id}</p>
+                <p><strong>Telegram Username:</strong> ${qrData.user.telegram_username || 'Не указано'}</p>
             `;
             
             // Отображаем информацию о команде
             const commandInfo = document.getElementById('command-info');
             commandInfo.innerHTML = `
                 <h3>Информация о команде</h3>
-                <p><strong>ID:</strong> ${command.id}</p>
-                <p><strong>Название:</strong> ${command.name}</p>
-                <p><strong>ID события:</strong> ${command.event_id}</p>
+                <p><strong>ID:</strong> ${qrData.command.id}</p>
+                <p><strong>Название:</strong> ${qrData.command.name}</p>
+                <p><strong>ID события:</strong> ${qrData.command.event_id}</p>
             `;
             
             // Отображаем список участников
@@ -487,7 +520,7 @@
             participantList.innerHTML = '<h3>Участники команды</h3>';
             
             const ul = document.createElement('ul');
-            command.participants.forEach(participant => {
+            qrData.command.participants.forEach(participant => {
                 const li = document.createElement('li');
                 li.innerHTML = `${participant.full_name} - <i>${participant.role}</i>`;
                 ul.appendChild(li);
@@ -496,14 +529,12 @@
             participantList.appendChild(ul);
             
             // Показываем кнопки действий для организаторов
-            if (user.role === 'organizer') {
-                const actionButtons = document.getElementById('action-buttons');
-                actionButtons.style.display = 'block';
-                actionButtons.innerHTML = `
-                    <button onclick="changePoints()" class="btn btn-points">Изменить баллы</button>
-                    <button onclick="markAttendance()" class="btn btn-attendance">Отметить посещение</button>
-                `;
-            }
+            const actionButtons = document.getElementById('action-buttons');
+            actionButtons.style.display = 'block';
+            actionButtons.innerHTML = `
+                <button onclick="changePoints()" class="btn btn-points">Изменить баллы</button>
+                <button onclick="markAttendance()" class="btn btn-attendance">Отметить посещение</button>
+            `;
         }
         
         // Функция для изменения баллов команды

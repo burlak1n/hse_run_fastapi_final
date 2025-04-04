@@ -10,7 +10,7 @@ from app.auth.utils import set_tokens, generate_qr_image
 from app.dependencies.auth_dep import get_access_token, get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
@@ -103,30 +103,46 @@ async def get_me(
         user_data.id,
         options=[
             selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.user),
+            selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.role),
             selectinload(User.commands).joinedload(CommandsUser.role),
             selectinload(User.role)
         ]
     )
     
     # Оптимизированное формирование информации о командах
-    commands_info = [
-        CommandInfo(
+    commands_info = []
+    for cu in user.commands:
+        # Сортируем участников, чтобы капитан был первым
+        participants = []
+        captain_info = None
+        
+        for cu_user in cu.command.users:
+            participant = ParticipantInfo(
+                id=cu_user.user.id,
+                full_name=cu_user.user.full_name,
+                role=cu_user.role.name
+            )
+            
+            # Определяем капитана
+            if cu_user.role.name == "captain":
+                captain_info = participant
+            else:
+                participants.append(participant)
+        
+        # Ставим капитана в начало списка
+        if captain_info:
+            participants.insert(0, captain_info)
+            
+        command_info = CommandInfo(
             id=cu.command.id,
             name=cu.command.name,
             role=cu.role.name,
             event_id=cu.command.event_id,
             language_id=cu.command.language_id,
-            participants=[
-                ParticipantInfo(
-                    id=cu_user.user.id,
-                    full_name=cu_user.user.full_name,
-                    role=cu_user.role.name
-                )
-                for cu_user in cu.command.users
-            ]
+            participants=participants
         ).model_dump()
-        for cu in user.commands
-    ]
+        
+        commands_info.append(command_info)
 
     # Возвращаем информацию о пользователе
     return SUserInfo(
@@ -165,7 +181,7 @@ async def verify_qr(
     """
     Проверяет валидность сессионного токена.
     В зависимости от роли пользователя, который сканирует:
-    - guest: добавляет в команду
+    - guest: показывает информацию о команде и возможность присоединения
     - insider/organizer: возвращает информацию о команде
     """
     logger.info(f"Начало проверки QR-кода. Сканирующий пользователь: {scanner_user.id}")
@@ -174,19 +190,13 @@ async def verify_qr(
     try:
         qr_user = await get_current_user(request.token, session)
         if not qr_user:
-            logger.warning(f"Пользователь по QR-коду не найден")
+            logger.warning("Пользователь по QR-коду не найден")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле."}
             )
     except Exception as e:
         logger.error(f"Ошибка при получении пользователя по QR-коду: {str(e)}")
-        # Проверяем, связана ли ошибка с истекшим токеном
-        if hasattr(e, 'status_code') and e.status_code == 401:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле."}
-            )
         return JSONResponse(
             status_code=401,
             content={"detail": "Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле."}
@@ -195,8 +205,6 @@ async def verify_qr(
     logger.info(f"Пользователь по QR-коду найден: {qr_user.id}")
 
     users_dao = UsersDAO(session)
-    commands_users_dao = CommandsUsersDAO(session)
-    roles_dao = RolesDAO(session)
     
     # Получаем команду пользователя, чей QR сканируют
     try:
@@ -214,115 +222,80 @@ async def verify_qr(
             content={"detail": "Ошибка при получении информации о команде. Пожалуйста, попробуйте позже."}
         )
     
-    # TODO: сканирует капитан - заглушка
-    # Проверяем, что qr_user является капитаном команды
-    # qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
-    # if qr_user_role != "captain":
-    #     return {
-    #         "ok": False,
-    #         "message": "Пользователь не является капитаном команды"
-    #     }
+    # Проверяем, является ли пользователь капитаном команды
+    qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
+    is_captain = qr_user_role == "captain"
+    
+    # Проверяем, состоит ли сканирующий пользователь уже в команде
+    scanner_user_command = None
+    try:
+        scanner_user_command = await users_dao.find_user_command_in_event(user_id=scanner_user.id)
+    except Exception as e:
+        logger.error(f"Ошибка при проверке команды сканирующего пользователя: {str(e)}")
     
     # Обработка в зависимости от роли сканирующего
-    if scanner_user.role.name == "guest":
-        logger.info(f"Сканирующий пользователь {scanner_user.id} имеет роль 'guest'")
+    if scanner_user.role.name in ["insider", "organizer"]:
+        # Инсайдер или организатор - возвращаем полную информацию
         
-        # Проверяем, не состоит ли уже пользователь в команде
-        scanner_user_command = await users_dao.find_user_command_in_event(user_id=scanner_user.id)
-        if scanner_user_command:
-            logger.warning(f"Пользователь {scanner_user.id} уже состоит в команде {scanner_user_command.id}")
-            return {
-                "ok": False,
-                "message": "Вы уже состоите в другой команде"
+        # Сортируем участников команды, чтобы капитан был первым
+        participants = []
+        captain_info = None
+        
+        for cu in qr_user_command.users:
+            participant_info = {
+                "id": cu.user.id,
+                "full_name": cu.user.full_name,
+                "role": cu.role.name
             }
-        
-        # Проверяем, не состоит ли пользователь уже в этой команде
-        if any(cu.user_id == scanner_user.id for cu in qr_user_command.users):
-            logger.warning(f"Пользователь {scanner_user.id} уже состоит в этой команде")
-            return {
-                "ok": False,
-                "message": "Вы уже состоите в этой команде"
-            }
-        
-        # Проверяем максимальное количество участников
-        if len(qr_user_command.users) >= 6:
-            logger.warning(f"Команда {qr_user_command.id} уже имеет максимальное количество участников")
-            return {
-                "ok": False,
-                "message": "В команде уже максимальное количество участников"
-            }
-        
-        # Получаем ID роли гостя через Pydantic модель
-        class RoleFilter(BaseModel):
-            name: str
-
-        try:
-            guest_role = await roles_dao.find_one_or_none(filters=RoleFilter(name="guest"))
-            if not guest_role:
-                logger.error("Роль гостя не найдена")
-                return JSONResponse(
-                    status_code=500,
-                    content={"detail": "Внутренняя ошибка сервера. Пожалуйста, попробуйте позже."}
-                )
             
-            # Добавляем пользователя в команду
-            await commands_users_dao.add(CommandsUserBase(
-                command_id=qr_user_command.id,
-                user_id=scanner_user.id,
-                role_id=guest_role.id
-            ))
-            
-            logger.info(f"Пользователь {scanner_user.id} успешно добавлен в команду {qr_user_command.id}")
-            return {
-                "ok": True,
-                "message": "Вы успешно добавлены в команду"
+            if cu.role.name == "captain":
+                captain_info = participant_info
+            else:
+                participants.append(participant_info)
+                
+        # Добавляем капитана в начало списка
+        if captain_info:
+            participants.insert(0, captain_info)
+        
+        response_data = {
+            "ok": True,
+            "scanner_is_in_team": scanner_user_command is not None,
+            "scanner_role": scanner_user.role.name,
+            "is_captain": is_captain,
+            "user": {
+                "id": qr_user.id,
+                "full_name": qr_user.full_name,
+                "role": qr_user.role.name,
+                "telegram_id": qr_user.telegram_id,
+                "telegram_username": qr_user.telegram_username
+            },
+            "command": {
+                "id": qr_user_command.id,
+                "name": qr_user_command.name,
+                "event_id": qr_user_command.event_id,
+                "participants": participants
             }
-        except Exception as e:
-            logger.error(f"Ошибка при добавлении пользователя {scanner_user.id} в команду {qr_user_command.id}: {str(e)}")
-            # Проверяем, связана ли ошибка с внутренней ошибкой сервера
-            if hasattr(e, 'status_code') and e.status_code == 500:
-                return JSONResponse(
-                    status_code=500,
-                    content={"detail": "Внутренняя ошибка сервера. Пожалуйста, попробуйте позже."}
-                )
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Ошибка при добавлении в команду. Пожалуйста, попробуйте позже."}
-            )
-    
-    # Для insider и organizer возвращаем информацию о команде
-    elif scanner_user.role.name in ["insider", "organizer"]:
-        logger.info(f"Сканирующий пользователь {scanner_user.id} имеет роль {scanner_user.role.name}")
-        try:
-            return {
-                "ok": True,
-                "user": {
-                    "id": qr_user.id,
-                    "full_name": qr_user.full_name,
-                    "role": qr_user.role.name,
-                    "telegram_id": qr_user.telegram_id,
-                    "telegram_username": qr_user.telegram_username
-                },
-                "command": {
-                    "id": qr_user_command.id,
-                    "name": qr_user_command.name,
-                    "event_id": qr_user_command.event_id,
-                    "participants": [
-                        {
-                            "id": cu.user.id,
-                            "full_name": cu.user.full_name,
-                            "role": cu.role.name
-                        }
-                        for cu in qr_user_command.users
-                    ]
-                }
-            }
-        except Exception as e:
-            logger.error(f"Ошибка при формировании информации для {scanner_user.role.name}: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Ошибка при получении данных. Пожалуйста, попробуйте позже."}
-            )
+        }
+        
+        # Если организатор не в команде и сканирует капитана, тоже можно присоединиться
+        if scanner_user.role.name == "organizer" and not scanner_user_command and is_captain and len(qr_user_command.users) < 6:
+            response_data["can_join"] = True
+            response_data["command_name"] = qr_user_command.name
+            response_data["captain_name"] = qr_user.full_name
+            response_data["token"] = request.token
+        
+        return response_data
+    else:
+        # Для гостей возвращаем сокращенную информацию
+        return {
+            "ok": True,
+            "message": "QR-код проверен",
+            "scanner_is_in_team": scanner_user_command is not None,
+            "can_join": is_captain and scanner_user_command is None and len(qr_user_command.users) < 6,
+            "command_name": qr_user_command.name,
+            "captain_name": qr_user.full_name,
+            "token": request.token  # Передаем токен обратно для использования при присоединении
+        }
     
     # Для других ролей возвращаем ошибку
     logger.warning(f"Роль {scanner_user.role.name} не позволяет выполнить это действие")
@@ -330,6 +303,121 @@ async def verify_qr(
         "ok": False,
         "message": "Ваша роль не позволяет выполнить это действие"
     }
+
+# Новый маршрут для присоединения к команде
+class JoinTeamRequest(BaseModel):
+    token: str  # Токен QR-кода
+
+@router.post("/command/join")
+async def join_team(
+    request: JoinTeamRequest,
+    scanner_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session_with_commit)
+):
+    """Присоединение к команде через QR-код"""
+    logger.info(f"Запрос на присоединение к команде от пользователя {scanner_user.id}")
+    
+    # Получаем пользователя, чей QR сканировали
+    try:
+        qr_user = await get_current_user(request.token, session)
+        if not qr_user:
+            logger.warning("Пользователь по QR-коду не найден")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле."}
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при получении пользователя по QR-коду: {str(e)}")
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле."}
+        )
+
+    users_dao = UsersDAO(session)
+    commands_users_dao = CommandsUsersDAO(session)
+    roles_dao = RolesDAO(session)
+    
+    # Получаем команду пользователя, чей QR сканировали
+    try:
+        qr_user_command = await users_dao.find_user_command_in_event(user_id=qr_user.id)
+        if not qr_user_command:
+            logger.warning(f"Пользователь {qr_user.id} не состоит в команде")
+            return {
+                "ok": False,
+                "message": "Пользователь не состоит в команде"
+            }
+    except Exception as e:
+        logger.error(f"Ошибка при получении команды пользователя {qr_user.id}: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Ошибка при получении информации о команде. Пожалуйста, обратитесь к организаторам."}
+        )
+    
+    # Проверяем, что владелец QR - капитан
+    qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
+    if qr_user_role != "captain":
+        logger.warning(f"Пользователь {qr_user.id} не является капитаном команды")
+        return {
+            "ok": False,
+            "message": "Только QR капитана команды позволяет присоединиться"
+        }
+    
+    # Проверяем, не состоит ли уже пользователь в команде
+    scanner_user_command = await users_dao.find_user_command_in_event(user_id=scanner_user.id)
+    if scanner_user_command:
+        logger.warning(f"Пользователь {scanner_user.id} уже состоит в команде {scanner_user_command.id}")
+        return {
+            "ok": False,
+            "message": "Вы уже состоите в другой команде"
+        }
+    
+    # Проверяем, не состоит ли пользователь уже в этой команде
+    if any(cu.user_id == scanner_user.id for cu in qr_user_command.users):
+        logger.warning(f"Пользователь {scanner_user.id} уже состоит в этой команде")
+        return {
+            "ok": False,
+            "message": "Вы уже состоите в этой команде"
+        }
+    
+    # Проверяем максимальное количество участников
+    if len(qr_user_command.users) >= 6:
+        logger.warning(f"Команда {qr_user_command.id} уже имеет максимальное количество участников")
+        return {
+            "ok": False,
+            "message": "В команде уже максимальное количество участников"
+        }
+    
+    # Получаем роль для участника команды
+    try:
+        # Используем RolesUsersCommandDAO для получения роли участника
+        roles_users_dao = RolesUsersCommandDAO(session)
+        member_role_id = await roles_users_dao.get_role_id(role_name="member")
+        
+        if not member_role_id:
+            logger.error("Роль 'member' не найдена в базе данных")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Внутренняя ошибка сервера. Пожалуйста, обратитесь к организаторам."}
+            )
+        
+        # Добавляем пользователя в команду с ролью участника
+        await commands_users_dao.add(CommandsUserBase(
+            command_id=qr_user_command.id,
+            user_id=scanner_user.id,
+            role_id=member_role_id
+        ))
+        
+        logger.info(f"Пользователь {scanner_user.id} успешно добавлен в команду {qr_user_command.id}")
+        return {
+            "ok": True,
+            "message": "Вы успешно добавлены в команду"
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении пользователя {scanner_user.id} в команду {qr_user_command.id}: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Ошибка при добавлении в команду. Пожалуйста, обратитесь к организаторам."}
+        )
 
 
 # Управление командами

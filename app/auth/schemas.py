@@ -124,3 +124,6 @@ class CommandsUser(CommandsUserBase):
     id: int = Field(description="ID записи")
     
     model_config = ConfigDict(from_attributes=True)
+
+class RoleFilter(BaseModel):
+    name: str

@@ -202,7 +202,6 @@ class RolesDAO(BaseDAO):
 class LanguagesDAO(BaseDAO):
     model = Language
     
-
 class RolesUsersCommandDAO(BaseDAO):
     model = RoleUserCommand
 
