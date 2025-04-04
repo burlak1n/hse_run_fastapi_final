@@ -15,18 +15,28 @@ def set_tokens(response: Response, session_token: str):
 
     Args:
         response (Response): Объект HTTP-ответа FastAPI.
-        db (AsyncSession): Асинхронная сессия для работы с базой данных.
-    Raises:
-        HTTPException: Если не удалось создать или установить токен.
+        session_token (str): Токен сессии для установки в cookies.
     """
+    # Устанавливаем основные cookie с менее строгими настройками для совместимости
     response.set_cookie(
         key="session_token",
         value=session_token,
         httponly=True,
+        secure=False,  # Для локальной разработки
+        samesite="lax",  # Более совместимая настройка
+        max_age=int(SESSION_EXPIRE_SECONDS),  # Срок действия сессии
+        path="/",  # Доступно для всех путей
+    )
+    
+    # Добавляем альтернативную cookie с параметрами для Chrome/Firefox
+    response.set_cookie(
+        key="session_token_alt",
+        value=session_token,
+        httponly=True,
         secure=False,
-        # secure=True,
-        samesite="lax",
-        max_age=int(SESSION_EXPIRE_SECONDS),  # Срок действия 7 дней
+        samesite="strict",  # Более строгая настройка для безопасности
+        max_age=int(SESSION_EXPIRE_SECONDS),
+        path="/",
     )
 
 async def create_session(user_id: int) -> Session:

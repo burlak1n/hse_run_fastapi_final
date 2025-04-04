@@ -58,7 +58,6 @@ class AdminDashboardView(AdminPage):
         <html>
         <head>
             <title>Панель управления</title>
-            <link rel="stylesheet" href="/admin/statics/css/sqladmin.css">
             <style>
                 .dashboard-container {{
                     padding: 20px;
@@ -514,13 +513,10 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
 
     async def get_user(self, request: Request) -> Optional[Any]:
         """Получает пользователя из запроса, напрямую обращаясь к БД."""
-        try:
-            # Получаем токен сессии из запроса
-            session_token = get_access_token(request)
-            if not session_token:
-                return None
-        except Exception:
-            logger.debug("Не удалось получить токен доступа")
+        # Получаем токен сессии из запроса
+        session_token = get_access_token(request)
+        if not session_token:
+            logger.debug("Токен сессии не найден в запросе")
             return None
         
         # Получаем сессию пользователя из БД
@@ -529,7 +525,8 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
             user_session = await session_dao.get_session(session_token)
         
             # Проверяем существование и валидность сессии
-            if not user_session or not user_session.is_valid():
+            if not user_session:
+                logger.debug("Недействительная или не найденная сессия")
                 return None
             
             # Получаем пользователя

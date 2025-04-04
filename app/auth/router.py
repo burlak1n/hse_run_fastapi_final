@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 import io
 import base64
+from typing import Optional, Union
 
 from app.auth.models import User, CommandsUser, Command
 from app.auth.utils import set_tokens, generate_qr_image
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
 from app.config import settings
+from fastapi import status
 
 router = APIRouter()
 
@@ -85,7 +87,11 @@ async def complete_registration(
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("session_token")
+    # Удаляем основной токен сессии
+    response.delete_cookie("session_token", path="/")
+    # Удаляем альтернативный токен сессии
+    response.delete_cookie("session_token_alt", path="/")
+    
     return {'message': 'Пользователь успешно вышел из системы'}
 
 
@@ -94,9 +100,16 @@ async def logout(response: Response):
 
 @router.get("/me")
 async def get_me(
-    user_data: User = Depends(get_current_user),
+    user_data: Optional[User] = Depends(get_current_user),
     session: AsyncSession = Depends(get_session_with_commit)
-) -> SUserInfo:
+):
+    # Если пользователь не авторизован, возвращаем сообщение
+    if not user_data:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"ok": False, "message": "Пользователь не авторизован"}
+        )
+    
     # Оптимизированный запрос с минимально необходимыми данными
     users_dao = UsersDAO(session)
     user = await users_dao.find_one_by_id(
@@ -157,9 +170,16 @@ async def get_me(
 
 @router.get("/qr")
 async def get_me_qr_code(
-    user_data: User = Depends(get_current_user),
-    session_token: str = Depends(get_access_token),
+    user_data: Optional[User] = Depends(get_current_user),
+    session_token: Optional[str] = Depends(get_access_token),
 ):
+    # Если пользователь не авторизован или токен отсутствует, возвращаем ошибку
+    if not user_data or not session_token:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"ok": False, "message": "Пользователь не авторизован"}
+        )
+    
     # Генерация QR-кода с ссылкой на эндпоинт проверки
     qr_link = f"{settings.BASE_URL}/qr/verify?token={session_token}"
     qr_data = generate_qr_image(qr_link)
@@ -169,6 +189,7 @@ async def get_me_qr_code(
         "qr_link": qr_link,
         "qr_image": base64.b64encode(qr_data).decode("utf-8")  # Кодируем изображение в base64
     })
+
 class QRVerifyRequest(BaseModel):
     token: str
 

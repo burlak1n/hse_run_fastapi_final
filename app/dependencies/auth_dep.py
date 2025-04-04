@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from app.auth.dao import UsersDAO
 from app.auth.models import User
@@ -14,13 +15,23 @@ from app.logger import logger
 
 
 
-def get_access_token(request: Request) -> str:
+def get_access_token(request: Request) -> Optional[str]:
     """Извлекаем access_token из кук."""
     logger.info(f"Попытка извлечения токена сессии из cookies")
+    
+    # Пробуем получить основной токен сессии
     token = request.cookies.get('session_token')
+    
+    # Если основной токен отсутствует, пробуем альтернативный
     if not token:
+        token = request.cookies.get('session_token_alt')
+        if token:
+            logger.info("Токен сессии получен из альтернативной cookie")
+            return token
+        
         logger.warning("Токен сессии не найден в cookies")
-        raise TokenNoFound
+        return None
+    
     logger.info("Токен сессии успешно извлечен")
     return token
 
@@ -58,33 +69,39 @@ def get_access_token(request: Request) -> str:
 
 
 async def get_current_user(
-        session_token: str = Depends(get_access_token),
+        session_token: Optional[str] = Depends(get_access_token),
         session: AsyncSession = Depends(get_session_without_commit)
-) -> User:
-    """Получаем текущего пользователя по токену сессии."""    
+) -> Optional[User]:
+    """Получаем текущего пользователя по токену сессии."""
+    if not session_token:
+        logger.warning("Не предоставлен токен сессии")
+        return None
+    
     session_dao = SessionDAO(session)
     users_dao = UsersDAO(session)
     
     logger.info(f"Попытка получения пользователя по токену сессии: {session_token}")
     
-    # Получаем сессию по токену
-    user_session = await session_dao.get_session(session_token)
-    if not user_session or not user_session.is_valid():
-        logger.warning(f"Недействительная или не найденная сессия для токена: {session_token}")
-        raise TokenExpiredException
-    
-    logger.info(f"Найдена сессия для пользователя с ID: {user_session.user_id}")
-    
-    # TODO Обновление сессии пользователя?
-    # Получаем пользователя
-    user = await users_dao.find_one_or_none_by_id(user_session.user_id)
-    if not user:
-        logger.error(f"Пользователь с ID {user_session.user_id} не найден в базе данных")
-        raise UserNotFoundException
-    
-    logger.info(f"Успешно получен пользователь: {user.id} {user.full_name}")
-    
-    return user
+    try:
+        # Получаем сессию по токену
+        user_session = await session_dao.get_session(session_token)
+        if not user_session or not user_session.is_valid():
+            logger.warning(f"Недействительная или не найденная сессия для токена: {session_token}")
+            return None
+        
+        logger.info(f"Найдена сессия для пользователя с ID: {user_session.user_id}")
+        
+        # Получаем пользователя
+        user = await users_dao.find_one_or_none_by_id(user_session.user_id)
+        if not user:
+            logger.error(f"Пользователь с ID {user_session.user_id} не найден в базе данных")
+            return None
+        
+        logger.info(f"Успешно получен пользователь: {user.id} {user.full_name}")
+        return user
+    except Exception as e:
+        logger.error(f"Ошибка при получении пользователя: {str(e)}")
+        return None
 
 
 # async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:

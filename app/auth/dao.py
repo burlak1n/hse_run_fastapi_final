@@ -343,9 +343,10 @@ class SessionDAO(BaseDAO):
         try:
             session = await self.find_one_or_none(filters=SessionGet(token=session_token))
             if not session or not session.is_valid():
-                raise ValueError("Invalid or expired session token")
+                logger.warning(f"Недействительная или истекшая сессия с токеном {session_token}")
+                return None
             logger.info(f"Сессия с токеном {session_token} успешно получена")
             return session
         except Exception as e:
             logger.error(f"Ошибка при получении сессии: {e}")
-            raise
+            return None

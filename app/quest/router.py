@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +6,7 @@ from app.auth.dao import CommandsDAO, UsersDAO
 from app.auth.models import User
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
+from typing import Optional, Dict, Union
 
 from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO
 from app.logger import logger
@@ -17,8 +18,12 @@ from app.quest.utils import compare_strings
 
 router = APIRouter()
 
-async def get_team_stats(user: User, session: AsyncSession) -> dict:
+async def get_team_stats(user: Optional[User], session: AsyncSession) -> Optional[Dict]:
     """Общая функция для получения статистики команды"""
+    if not user:
+        logger.warning("Попытка получить статистику команды для неавторизованного пользователя")
+        return None
+        
     users_dao = UsersDAO(session)
     command = await users_dao.find_user_command_in_event(user.id)
     if not command:
@@ -85,10 +90,17 @@ async def build_block_response(block, team_stats, command, include_riddles=False
 @router.get("/")
 async def get_all_quest_blocks(
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user),
+    user: Optional[User] = Depends(get_current_user),
     include_riddles: bool = False
 ):
     """Получает все блоки квеста"""
+    # Проверяем авторизацию
+    if not user:
+        return JSONResponse(
+            content={"ok": False, "message": "Пользователь не авторизован"},
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+        
     team_stats = await get_team_stats(user, session)
     if not team_stats:
         return JSONResponse(
@@ -122,9 +134,16 @@ async def get_all_quest_blocks(
 async def get_quest_block(
     block_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: Optional[User] = Depends(get_current_user)
 ):
     """Получает конкретный блок квеста по его ID"""
+    # Проверяем авторизацию
+    if not user:
+        return JSONResponse(
+            content={"ok": False, "message": "Пользователь не авторизован"},
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+        
     team_stats = await get_team_stats(user, session)
     if not team_stats:
         return JSONResponse(
@@ -240,11 +259,18 @@ async def check_answer(
     riddle_id: int,
     answer_data: dict,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     Проверяет ответ пользователя на загадку
     """
+    # Проверяем авторизацию
+    if not user:
+        return JSONResponse(
+            content={"ok": False, "message": "Пользователь не авторизован"},
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+        
     try:
         logger.info(f"Начало проверки ответа. Пользователь: {user.id}, Загадка: {riddle_id}")
         
@@ -342,11 +368,18 @@ async def check_answer(
 async def get_hint(
     riddle_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
-    Получает подсказку для загадки, учитывая баллы и монеты команды
+    Возвращает подсказку для загадки
     """
+    # Проверяем авторизацию
+    if not user:
+        return JSONResponse(
+            content={"ok": False, "message": "Пользователь не авторизован"},
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+        
     try:
         logger.info(f"Запрос подсказки. Пользователь: {user.id}, Загадка: {riddle_id}")
         
