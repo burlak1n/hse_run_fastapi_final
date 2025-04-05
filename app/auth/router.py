@@ -273,7 +273,6 @@ async def verify_qr(
             participant_info = {
                 "id": cu.user.id,
                 "full_name": cu.user.full_name,
-                "role": cu.role.name
             }
             
             if cu.role.name == "captain":
@@ -314,15 +313,23 @@ async def verify_qr(
         
         return response_data
     else:
-        # Для гостей возвращаем сокращенную информацию
+        # Для гостей возвращаем сокращенную информацию с указанием причины, почему нельзя присоединиться
+        join_reason = (
+            "already_in_team" if scanner_user_command is not None else
+            "not_captain" if not is_captain else
+            "team_full" if len(qr_user_command.users) >= 6 else
+            "unknown"
+        ) if not (can_join := is_captain and scanner_user_command is None and len(qr_user_command.users) < 6) else None
+        
         return {
             "ok": True,
             "message": "QR-код проверен",
             "scanner_is_in_team": scanner_user_command is not None,
-            "can_join": is_captain and scanner_user_command is None and len(qr_user_command.users) < 6,
+            "can_join": can_join,
+            "join_reason": join_reason,
             "command_name": qr_user_command.name,
             "captain_name": qr_user.full_name,
-            "token": request.token  # Передаем токен обратно для использования при присоединении
+            "token": request.token
         }
     
     # Для других ролей возвращаем ошибку
