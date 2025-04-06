@@ -249,11 +249,11 @@ class CommandsDAO(BaseDAO):
             logger.error(f"Ошибка при удалении команды: {e}")
             raise
     
-    async def update_name(self, command_id: int, name: str):
+    async def update_name(self, command_id: int, name: str, language_id: int = None):
         """
-        Обновляет название команды
+        Обновляет название команды и опционально язык
         """
-        logger.info(f"Обновление названия команды {command_id}")
+        logger.info(f"Обновление команды {command_id}")
         try:
             stmt = select(self.model).where(self.model.id == command_id)
             result = await self._session.execute(stmt)
@@ -261,12 +261,34 @@ class CommandsDAO(BaseDAO):
             
             if command:
                 command.name = name
+                if language_id is not None:
+                    command.language_id = language_id
                 await self._session.commit()
-                logger.info(f"Название команды {command_id} успешно обновлено")
+                logger.info(f"Команда {command_id} успешно обновлена")
             else:
                 logger.warning(f"Команда {command_id} не найдена")
         except Exception as e:
-            logger.error(f"Ошибка при обновлении названия команды: {e}")
+            logger.error(f"Ошибка при обновлении команды: {e}")
+            raise
+
+    async def update_language(self, command_id: int, language_id: int):
+        """
+        Обновляет язык команды
+        """
+        logger.info(f"Обновление языка команды {command_id}")
+        try:
+            stmt = select(self.model).where(self.model.id == command_id)
+            result = await self._session.execute(stmt)
+            command = result.scalar_one_or_none()
+            
+            if command:
+                command.language_id = language_id
+                await self._session.commit()
+                logger.info(f"Язык команды {command_id} успешно обновлен")
+            else:
+                logger.warning(f"Команда {command_id} не найдена")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении языка команды: {e}")
             raise
 
 class RolesDAO(BaseDAO):

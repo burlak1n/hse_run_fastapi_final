@@ -64,8 +64,12 @@ class SUserInfo(UserBase):
 class CommandName(BaseModel):
     name: str
 
+class CommandEdit(CommandName):
+    language_id: int
+
 class CommandBase(CommandName):
     event_id: int
+    language_id: int
 
 class EventID(BaseModel):
     name: str

@@ -11,7 +11,7 @@ from app.auth.utils import set_tokens, generate_qr_image
 from app.dependencies.auth_dep import get_access_token, get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
@@ -458,7 +458,7 @@ async def get_user_command(
 
 @router.post("/command/create")
 async def command_create(
-    request: CommandName,
+    request: CommandEdit,
     session: AsyncSession = Depends(get_session_with_commit),
     user: User = Depends(get_current_user)
 ):
@@ -487,8 +487,12 @@ async def command_create(
                 content={"detail": "Команда с таким названием уже существует."}
             )
 
-        # Создаем команду с event_id текущего события
-        command = await command_dao.add(values=CommandBase(name=request.name, event_id=curr_event_id))
+        # Создаем команду с event_id текущего события и language_id из запроса
+        command = await command_dao.add(values=CommandBase(
+            name=request.name, 
+            event_id=curr_event_id, 
+            language_id=request.language_id
+        ))
         logger.info(f"Создана новая команда с ID {command.id}")
 
         # Получаем роль капитана
@@ -573,12 +577,12 @@ async def delete_command(
 
 @router.post("/command/rename")
 async def rename_command(
-    request: CommandName,
+    request: CommandEdit,
     session: AsyncSession = Depends(get_session_with_commit),
     user: User = Depends(get_current_user)
 ):
     """Переименование команды капитаном"""
-    logger.info(f"Попытка переименования команды пользователем {user.id} на {request.name}")
+    logger.info(f"Попытка изменения команды пользователем {user.id} на {request.name}")
     
     try:
         # Получаем команду пользователя
@@ -596,7 +600,7 @@ async def rename_command(
         if not is_captain:
             return JSONResponse(
                 status_code=403,
-                content={"detail": "Только капитан может переименовать команду"}
+                content={"detail": "Только капитан может изменять команду"}
             )
         
         # Проверяем, существует ли команда с таким названием
@@ -609,12 +613,12 @@ async def rename_command(
                 content={"detail": "Команда с таким названием уже существует."}
             )
         
-        # Переименовываем команду
-        await commands_dao.update_name(command.id, request.name)
+        # Обновляем название и язык команды
+        await commands_dao.update_name(command.id, request.name, request.language_id)
         
         return JSONResponse(
             status_code=200,
-            content={"message": "Команда успешно переименована"}
+            content={"message": "Команда успешно обновлена"}
         )
     except Exception as e:
         logger.error(f"Ошибка при переименовании команды: {str(e)}")
