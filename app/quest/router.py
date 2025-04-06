@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.auth.dao import CommandsDAO, UsersDAO
-from app.auth.models import User
+from app.auth.dao import CommandsDAO, UsersDAO, EventsDAO
+from app.auth.models import User, CommandsUser, Command
 from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
 from typing import Optional, Dict, Union
@@ -13,6 +12,7 @@ from app.logger import logger
 from app.quest.schemas import BlockFilter, FindAnswersForQuestion, FindQuestionsForBlock
 from app.quest.models import Attempt, AttemptType, Question
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.quest.utils import compare_strings
 
@@ -469,6 +469,99 @@ async def get_hint(
         
     except Exception as e:
         logger.error(f"Ошибка при запросе подсказки. Пользователь: {user.id}, Загадка: {riddle_id}, Ошибка: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"ok": False, "message": "Внутренняя ошибка сервера"},
+            status_code=500
+        )
+
+@router.get("/stats/commands")
+async def get_commands_stats(
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: Optional[User] = Depends(get_current_user)
+):
+    """Получает статистику по всем командам и решенным ими загадкам"""
+    logger.info("Начало получения статистики команд")
+    # Проверяем авторизацию
+    if not user:
+        logger.warning("Пользователь не авторизован")
+        return JSONResponse(
+            content={"ok": False, "message": "Пользователь не авторизован"},
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    try:
+        # Получаем все команды для текущего события
+        commands_dao = CommandsDAO(session)
+        event_dao = EventsDAO(session)
+        curr_event_id = await event_dao.get_event_id_by_name()
+
+        if not curr_event_id:
+            logger.error("Не удалось получить информацию о текущем событии")
+            return JSONResponse(
+                content={"ok": False, "message": "Не удалось получить информацию о текущем событии"},
+                status_code=500
+            )
+
+        # Получаем все команды текущего события
+        commands = await commands_dao.find_all_by_event(
+            curr_event_id,
+            options=[
+                selectinload(Command.users).joinedload(CommandsUser.user),
+                selectinload(Command.users).joinedload(CommandsUser.role),
+                selectinload(Command.language)
+            ]
+        )
+        logger.info(f"Найдено команд: {len(commands)}")
+        
+        # Собираем статистику для каждой команды
+        stats = []
+        for command in commands:
+            logger.info(f"Обработка команды: {command.name}")
+            # Получаем статистику команды
+            command_stats = await calculate_team_score_and_coins(command.id, session)
+            
+            # Получаем количество решенных загадок для команды
+            solved_query = await session.execute(
+                select(Attempt)
+                .join(AttemptType)
+                .where(Attempt.command_id == command.id)
+                .where(Attempt.is_true == True)
+                .where(AttemptType.name.in_(["question", "question_hint"]))
+            )
+            solved_riddles = solved_query.scalars().all()
+            logger.info(f"Команда {command.name} решила загадок: {len(solved_riddles)}")
+            
+            # Получаем информацию об участниках команды
+            participants = []
+            for user_assoc in command.users:
+                participants.append({
+                    "id": user_assoc.user.id,
+                    "name": user_assoc.user.full_name,
+                    "role": user_assoc.role.name if user_assoc.role else "member"
+                })
+
+            logger.info(f"Собрана информация о команде {command.name}: участников - {len(participants)}, решено загадок - {len(solved_riddles)}, очки - {command_stats['score']}, монеты - {command_stats['coins']}")
+            stats.append({
+                "id": command.id,
+                "name": command.name,
+                "language": command.language.name if command.language else "default",
+                "score": command_stats["score"],
+                "coins": command_stats["coins"],
+                "solved_riddles_count": len(solved_riddles),
+                "participants_count": len(command.users),
+                "participants": participants
+            })
+        
+        # Сортируем команды по очкам (по убыванию)
+        stats.sort(key=lambda x: x["score"], reverse=True)
+        logger.info("Статистика команд успешно собрана и отсортирована")
+        logger.info(stats)
+        return JSONResponse(
+            content={"ok": True, "stats": stats}
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении статистики команд: {str(e)}", exc_info=True)
         return JSONResponse(
             content={"ok": False, "message": "Внутренняя ошибка сервера"},
             status_code=500

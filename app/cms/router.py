@@ -100,6 +100,7 @@ class AdminDashboardView(AdminPage):
                     <h2>Быстрые действия</h2>
                     <a href="/admin/database" class="btn">Управление БД</a>
                     <a href="/admin/riddle" class="btn">Создать загадку</a>
+                    <a href="/admin/stats/teams" class="btn">Статистика команд</a>
                     <br><br>
                     <a href="/quest" class="btn" style="background-color: #808080;">Вернуться на квест</a>
                 </div>

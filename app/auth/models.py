@@ -13,7 +13,7 @@ class Role(Base):
         return f"{self.__class__.__name__}(id={self.id}, name={self.name})"
 
 class RoleUserCommand(Base):
-    # "member", "captain", etc.
+    # "member", "captain"
     name: Mapped[str_uniq]
 
     def __repr__(self):

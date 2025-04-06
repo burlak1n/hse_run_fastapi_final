@@ -156,6 +156,39 @@ class CommandsUsersDAO(BaseDAO):
 class CommandsDAO(BaseDAO):
     model = Command
     
+    async def find_all_by_event(self, event_id: int, options: list = None):
+        """
+        Находит все команды для указанного мероприятия с возможностью загрузки связанных данных.
+        
+        Args:
+            event_id: ID мероприятия
+            options: Опции загрузки связанных данных
+            
+        Returns:
+            Список команд
+        """
+        logger.info(f"Поиск всех команд для мероприятия {event_id}")
+        try:
+            query = select(self.model).filter(self.model.event_id == event_id)
+            if options:
+                for option in options:
+                    query = query.options(option)
+            
+            # Выполняем запрос асинхронно
+            result = await self._session.execute(query)
+            
+            # Получаем результаты
+            commands = result.scalars().all()
+            
+            logger.info(f"Найдено {len(commands)} команд для мероприятия {event_id}")
+            return commands
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка SQL при поиске команд для мероприятия {event_id}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка при поиске команд для мероприятия {event_id}: {e}")
+            raise
+    
     async def delete_by_id(self, command_id: int):
         """
         Удаляет команду по ID с учётом всех связей (attempts, commandsusers)

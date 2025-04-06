@@ -41,8 +41,15 @@ class BaseDAO(Generic[T]):
             r"(xp_cmdshell|xp_reg|sp_configure|sp_executesql)"
         ]
         
+        # Поля, для которых разрешены специальные символы
+        allowed_special_fields = ['token', 'password', 'hash', 'key', 'secret']
+        
         for key, value in data.items():
             if isinstance(value, str):
+                # Пропускаем проверку для полей токенов и паролей
+                if key in allowed_special_fields:
+                    continue
+                    
                 # Проверяем строку на наличие паттернов SQL-инъекций
                 value_lower = value.lower()
                 for pattern in sql_patterns:
