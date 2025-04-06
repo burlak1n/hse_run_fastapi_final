@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 import io
 import base64
-from typing import Optional, Union
+from typing import Optional, Union, List, Dict, Any
 
 from app.auth.models import User, CommandsUser, Command
 from app.auth.utils import set_tokens, generate_qr_image
@@ -125,26 +125,8 @@ async def get_me(
     # Оптимизированное формирование информации о командах
     commands_info = []
     for cu in user.commands:
-        # Сортируем участников, чтобы капитан был первым
-        participants = []
-        captain_info = None
-        
-        for cu_user in cu.command.users:
-            participant = ParticipantInfo(
-                id=cu_user.user.id,
-                full_name=cu_user.user.full_name,
-                role=cu_user.role.name
-            )
-            
-            # Определяем капитана
-            if cu_user.role.name == "captain":
-                captain_info = participant
-            else:
-                participants.append(participant)
-        
-        # Ставим капитана в начало списка
-        if captain_info:
-            participants.insert(0, captain_info)
+        # Форматируем участников с помощью вспомогательной функции
+        participants = format_participants(cu.command.users, include_role=True)
             
         command_info = CommandInfo(
             id=cu.command.id,
@@ -250,9 +232,14 @@ async def verify_qr(
             content={"detail": "Ошибка при получении информации о команде. Пожалуйста, попробуйте позже."}
         )
     
-    # Проверяем, является ли пользователь капитаном команды
-    qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
-    is_captain = qr_user_role == "captain"
+    # Проверяем, что владелец QR - капитан
+    qr_user_role, is_captain = get_user_role_in_command(qr_user_command.users, qr_user.id)
+    if not is_captain:
+        logger.warning(f"Пользователь {qr_user.id} не является капитаном команды")
+        return {
+            "ok": False,
+            "message": "Только QR капитана команды позволяет присоединиться"
+        }
     
     # Проверяем, состоит ли сканирующий пользователь уже в команде
     scanner_user_command = None
@@ -265,24 +252,9 @@ async def verify_qr(
     if scanner_user.role.name in ["insider", "organizer"]:
         # Инсайдер или организатор - возвращаем полную информацию
         
-        # Сортируем участников команды, чтобы капитан был первым
-        participants = []
-        captain_info = None
-        
-        for cu in qr_user_command.users:
-            participant_info = {
-                "id": cu.user.id,
-                "full_name": cu.user.full_name,
-            }
-            
-            if cu.role.name == "captain":
-                captain_info = participant_info
-            else:
-                participants.append(participant_info)
-                
-        # Добавляем капитана в начало списка
-        if captain_info:
-            participants.insert(0, captain_info)
+        # Форматируем участников с помощью вспомогательной функции
+        # Для QR-verify используем упрощенную версию (без ролей)
+        participants = format_participants(qr_user_command.users, include_role=False)
         
         response_data = {
             "ok": True,
@@ -405,8 +377,8 @@ async def join_team(
         )
     
     # Проверяем, что владелец QR - капитан
-    qr_user_role = next((cu.role.name for cu in qr_user_command.users if cu.user_id == qr_user.id), None)
-    if qr_user_role != "captain":
+    qr_user_role, is_captain = get_user_role_in_command(qr_user_command.users, qr_user.id)
+    if not is_captain:
         logger.warning(f"Пользователь {qr_user.id} не является капитаном команды")
         return {
             "ok": False,
@@ -577,8 +549,8 @@ async def delete_command(
             )
         
         # Проверяем, является ли пользователь капитаном
-        user_role = next((cu.role.name for cu in command.users if cu.user_id == user.id), None)
-        if user_role != "captain":
+        user_role, is_captain = get_user_role_in_command(command.users, user.id)
+        if not is_captain:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Только капитан может удалить команду"}
@@ -620,8 +592,8 @@ async def rename_command(
             )
         
         # Проверяем, является ли пользователь капитаном
-        user_role = next((cu.role.name for cu in command.users if cu.user_id == user.id), None)
-        if user_role != "captain":
+        user_role, is_captain = get_user_role_in_command(command.users, user.id)
+        if not is_captain:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Только капитан может переименовать команду"}
@@ -671,10 +643,10 @@ async def leave_command(
             )
         
         # Проверяем роль пользователя
-        user_role = next((cu.role.name for cu in command.users if cu.user_id == user.id), None)
+        user_role, is_captain = get_user_role_in_command(command.users, user.id)
         
         # Если пользователь - капитан, нельзя выйти из команды (нужно удалить её)
-        if user_role == "captain":
+        if is_captain:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Капитан не может покинуть команду. Вместо этого удалите команду."}
@@ -716,8 +688,8 @@ async def remove_user_from_command(
             )
         
         # Проверяем, является ли пользователь капитаном
-        user_role = next((cu.role.name for cu in command.users if cu.user_id == user.id), None)
-        if user_role != "captain":
+        user_role, is_captain = get_user_role_in_command(command.users, user.id)
+        if not is_captain:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Только капитан может исключать участников"}
@@ -732,7 +704,8 @@ async def remove_user_from_command(
             )
         
         # Проверяем, что исключаемый пользователь не капитан
-        if target_user.role.name == "captain":
+        target_role, target_is_captain = get_user_role_in_command(command.users, user_id)
+        if target_is_captain:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Нельзя исключить капитана из команды"}
@@ -800,4 +773,61 @@ async def check_event_status(
     except Exception as e:
         logger.error(f"Ошибка при проверке активности события: {e}")
         return {"is_active": False}
+
+# Вспомогательная функция для получения роли пользователя в команде
+def get_user_role_in_command(command_users, user_id):
+    """
+    Проверяет роль пользователя в команде
+    
+    Args:
+        command_users: Список объектов CommandsUser
+        user_id: ID пользователя для проверки
+        
+    Returns:
+        role_name: Название роли пользователя или None, если пользователь не найден
+        is_captain: True, если пользователь - капитан, False в противном случае
+    """
+    user_role = next((cu.role.name for cu in command_users if cu.user_id == user_id), None)
+    is_captain = user_role == "captain"
+    return user_role, is_captain
+
+# Вспомогательная функция для форматирования участников команды с капитаном в начале списка
+def format_participants(command_users, include_role=True) -> List[Dict[str, Any]]:
+    """
+    Форматирует список участников команды, помещая капитана в начало списка.
+    
+    Args:
+        command_users: Список объектов CommandsUser (связь между пользователем и командой)
+        include_role: Включать ли информацию о роли пользователя в команде
+        
+    Returns:
+        Отформатированный список участников с капитаном в начале
+    """
+    participants = []
+    captain_info = None
+    
+    for cu in command_users:
+        if include_role:
+            participant_info = {
+                "id": cu.user.id,
+                "full_name": cu.user.full_name,
+                "role": cu.role.name
+            }
+        else:
+            participant_info = {
+                "id": cu.user.id,
+                "full_name": cu.user.full_name
+            }
+        
+        # Определяем капитана
+        if cu.role.name == "captain":
+            captain_info = participant_info
+        else:
+            participants.append(participant_info)
+    
+    # Ставим капитана в начало списка
+    if captain_info:
+        participants.insert(0, captain_info)
+        
+    return participants
 
