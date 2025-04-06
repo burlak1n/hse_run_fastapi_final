@@ -67,9 +67,8 @@ class CommandName(BaseModel):
 class CommandEdit(CommandName):
     language_id: int
 
-class CommandBase(CommandName):
+class CommandBase(CommandEdit):
     event_id: int
-    language_id: int
 
 class EventID(BaseModel):
     name: str
