@@ -208,7 +208,7 @@ async def verify_qr(
     if not scanner_user:
         logger.warning("Попытка проверки QR-кода неавторизованным пользователем")
         return JSONResponse(
-            status_code=401,
+            status_code=403,
             content={"detail": "Необходима авторизация для проверки QR-кода"}
         )
     
@@ -286,7 +286,6 @@ async def verify_qr(
         
         response_data = {
             "ok": True,
-            "scanner_is_in_team": scanner_user_command is not None,
             "scanner_role": scanner_user.role.name,
             "is_captain": is_captain,
             "user": {
@@ -304,27 +303,36 @@ async def verify_qr(
             }
         }
         
-        # Если организатор не в команде и сканирует капитана, тоже можно присоединиться
-        if scanner_user.role.name == "organizer" and not scanner_user_command and is_captain and len(qr_user_command.users) < 6:
-            response_data["can_join"] = True
-            response_data["command_name"] = qr_user_command.name
-            response_data["captain_name"] = qr_user.full_name
-            response_data["token"] = request.token
+        can_join = scanner_user.role.name == "organizer" and not scanner_user_command and is_captain and len(qr_user_command.users) < 6
+        
+        response_data.update({
+            "can_join": can_join,
+            "join_reason": None if can_join else (
+                "already_in_team" if scanner_user_command else
+                "not_captain" if not is_captain else
+                "team_full" if len(qr_user_command.users) >= 6 else
+                "unknown"
+            ),
+            "command_name": qr_user_command.name,
+            "captain_name": qr_user.full_name,
+            "token": request.token
+        })
         
         return response_data
     else:
         # Для гостей возвращаем сокращенную информацию с указанием причины, почему нельзя присоединиться
+        can_join = is_captain and scanner_user_command is None and len(qr_user_command.users) < 6
+        
         join_reason = (
             "already_in_team" if scanner_user_command is not None else
             "not_captain" if not is_captain else
             "team_full" if len(qr_user_command.users) >= 6 else
-            "unknown"
-        ) if not (can_join := is_captain and scanner_user_command is None and len(qr_user_command.users) < 6) else None
+            None  # Если присоединение возможно, причина отсутствует
+        ) if not can_join else None
         
         return {
             "ok": True,
             "message": "QR-код проверен",
-            "scanner_is_in_team": scanner_user_command is not None,
             "can_join": can_join,
             "join_reason": join_reason,
             "command_name": qr_user_command.name,
@@ -352,13 +360,21 @@ async def join_team(
     """Присоединение к команде через QR-код"""
     logger.info(f"Запрос на присоединение к команде от пользователя {scanner_user.id}")
     
+    # Проверяем, что пользователь авторизован
+    if not scanner_user:
+        logger.warning("Попытка присоединения к команде неавторизованным пользователем")
+        return JSONResponse(
+            status_code=403, # Используем 403 для ошибок авторизации
+            content={"detail": "Необходима авторизация для присоединения к команде"}
+        )
+    
     # Получаем пользователя, чей QR сканировали
     try:
         qr_user = await get_current_user(request.token, session)
         if not qr_user:
             logger.warning("Пользователь по QR-коду не найден")
             return JSONResponse(
-                status_code=401,
+                status_code=401, # Оставляем 401 для недействительных токенов
                 content={"detail": "Срок действия QR-кода или ссылки истек. Пожалуйста, получите новую ссылку в профиле."}
             )
     except Exception as e:
