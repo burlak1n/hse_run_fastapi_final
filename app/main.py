@@ -150,7 +150,7 @@ class SQLInjectionProtectionMiddleware(BaseHTTPMiddleware):
         # Паттерны для обнаружения возможных SQL-инъекций
         self.sql_patterns = [
             r"(\b(select|insert|update|delete|drop|alter|exec|union|where)\b)",
-            r"(--|;|\/\*|\*\/|@@|char|nchar|varchar|nvarchar|cursor|declare)",
+            r"(;|\/\*|\*\/|@@|char\s+|nchar\s+|varchar\s+|nvarchar\s+|cursor\s+|declare\s+)",
             r"(\bfrom\b.*\bwhere\b|\bunion\b.*\bselect\b)",
             r"(xp_cmdshell|xp_reg|sp_configure|sp_executesql)"
         ]
@@ -161,6 +161,10 @@ class SQLInjectionProtectionMiddleware(BaseHTTPMiddleware):
             try:
                 # Получаем тело запроса
                 body = await request.json()
+                
+                # Пропускаем запросы на верификацию QR кодов
+                if request.url.path == "/api/auth/qr/verify" and isinstance(body, dict) and "token" in body:
+                    return await call_next(request)
                 
                 # Проверяем на наличие паттернов SQL-инъекций
                 if self._check_sql_injection(body):

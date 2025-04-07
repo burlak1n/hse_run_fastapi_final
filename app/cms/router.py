@@ -97,8 +97,9 @@ class AdminDashboardView(AdminPage):
                 </div>
                 
                 <div class="card">
+
                     <h2>Быстрые действия</h2>
-                    <a href="/admin/database" class="btn">Управление БД</a>
+                    <a href="/admin/database/" class="btn">Управление БД</a>
                     <a href="/admin/riddle" class="btn">Создать загадку</a>
                     <a href="/admin/stats/teams" class="btn">Статистика команд</a>
                     <br><br>
@@ -608,6 +609,12 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     async def redirect_to_dashboard(request: Request):
         """Перенаправляет на панель управления."""
         return RedirectResponse(url="/admin/")
+    
+    # Добавляем специальный обработчик для /admin/database
+    @admin.app.get(f"{base_url}/database")
+    async def redirect_to_database(request: Request):
+        """Перенаправляет на страницу управления базой данных."""
+        return RedirectResponse(url=f"{base_url}/database/", status_code=status.HTTP_302_FOUND)
     
     # Применяем middleware для аутентификации
     admin.app.add_middleware(AdminAuthMiddleware)
