@@ -38,6 +38,11 @@ def set_tokens(response: Response, session_token: str):
         max_age=int(SESSION_EXPIRE_SECONDS),
         path="/",
     )
+    
+    # Добавляем заголовок для предотвращения кеширования страниц с аутентификацией
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
 
 async def create_session(user_id: int) -> Session:
     """Создание новой сессии"""

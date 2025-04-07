@@ -118,6 +118,7 @@ class AdminDashboardView(AdminPage):
     def register(self, admin: Admin) -> None:
         """Регистрирует маршрут для панели управления."""
         admin.app.get("/admin/")(self.dashboard)
+        admin.app.get("/admin")(self.dashboard)
 
 
 class AdminRiddleView(AdminPage):
@@ -497,6 +498,7 @@ class AdminRiddleView(AdminPage):
     def register(self, admin: Admin) -> None:
         """Регистрирует маршруты для создания загадок."""
         admin.app.get("/admin/riddle")(require_organizer_role(self.get_riddle_page))
+        admin.app.get("/admin/riddle/")(require_organizer_role(self.get_riddle_page))
         admin.app.post("/admin/riddle/generate")(require_organizer_role(self.generate_riddle))
 
 
@@ -558,12 +560,16 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
         
         if not user:
             logger.debug("Пользователь не аутентифицирован при доступе к админке")
-            return RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
+            response = RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return response
         
         # Проверяем роль пользователя
         if not user.role or user.role.name != "organizer":
             logger.debug(f"Попытка доступа к админке пользователем с ролью {user.role.name if user.role else 'None'}")
-            return RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
+            response = RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return response
             
         # Сохраняем пользователя в запросе для использования в представлениях
         request.scope["user"] = user
