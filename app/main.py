@@ -29,7 +29,7 @@ base_scheme = parsed_url.scheme
 # Добавляем gopass.dev и hserun.gopass.dev в разрешенные хосты
 ALLOWED_HOSTS = [
     "localhost", "127.0.0.1", "server", 
-    "hse-run.ru", "*.hse-run.ru", 
+    "hserun.ru", "*.hse-run.ru", 
     "gopass.dev", "*.gopass.dev", 
     base_domain
 ]
@@ -39,7 +39,7 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1",
     "http://localhost:8000",
     "http://server",
-    "https://hse-run.ru",
+    "https://hserun.ru",
     "https://*.hse-run.ru",
     "https://gopass.dev",
     "https://*.gopass.dev",
