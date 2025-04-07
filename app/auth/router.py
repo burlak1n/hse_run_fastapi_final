@@ -146,7 +146,8 @@ async def get_me(
         telegram_id=user.telegram_id,
         telegram_username=user.telegram_username,
         role=RoleModel(id=user.role.id, name=user.role.name),
-        commands=commands_info
+        commands=commands_info,
+        is_looking_for_friends=user.is_looking_for_friends
     )
 
 
@@ -174,6 +175,44 @@ async def get_me_qr_code(
 
 class QRVerifyRequest(BaseModel):
     token: str
+
+@router.post("/toggle_looking_for_team")
+async def toggle_looking_for_team(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session_with_commit)
+):
+    """
+    Переключает флаг is_looking_for_team у текущего пользователя
+    """
+    if not user:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"ok": False, "message": "Пользователь не авторизован"}
+        )
+    
+    try:
+        # Получаем свежую копию объекта пользователя из текущей сессии
+        users_dao = UsersDAO(session)
+        current_user = await users_dao.find_one_by_id(user.id)
+        
+        if not current_user:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"ok": False, "message": "Пользователь не найден"}
+            )
+        
+        # Переключаем флаг
+        current_user.is_looking_for_friends = not current_user.is_looking_for_friends
+        await session.commit()
+        
+        return {"ok": True, "is_looking_for_friends": current_user.is_looking_for_friends}
+    except Exception as e:
+        logger.error(f"Ошибка при переключении флага is_looking_for_friends: {str(e)}")
+        await session.rollback()
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"ok": False, "message": "Ошибка сервера при обновлении статуса"}
+        )
 
 @router.post("/qr/verify")
 async def verify_qr(

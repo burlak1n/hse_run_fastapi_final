@@ -24,6 +24,7 @@ class User(Base):
     full_name: Mapped[str]
     telegram_id: Mapped[int_uniq] = mapped_column(index=True)
     telegram_username: Mapped[str]
+    is_looking_for_friends: Mapped[bool] = mapped_column(default=False)
 
     # Если нет ролей, то пользователь неактивный
     role_id: Mapped[int | None] = mapped_column(

@@ -58,6 +58,10 @@ class SUserInfo(UserBase):
         default_factory=list,
         description="Список команд пользователя"
     )
+    is_looking_for_friends: bool = Field(
+        default=False,
+        description="Флаг поиска команды"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
