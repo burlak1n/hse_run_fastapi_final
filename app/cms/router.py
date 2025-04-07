@@ -587,7 +587,11 @@ def require_organizer_role(func: Callable[..., T]) -> Callable[..., T]:
     async def wrapper(request: Request, *args, **kwargs):
         user = request.scope.get("user")
         if not user or not hasattr(user, "role") or user.role.name != "organizer":
-            return RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
+            response = RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
         return await func(request, *args, **kwargs)
     return wrapper
 
@@ -597,6 +601,13 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     
     # Создаем экземпляр админки
     admin = Admin(app, engine, base_url=base_url)
+    
+    # Обработчики для корневого пути с обоими вариантами (со слешем и без)
+    @admin.app.get(f"{base_url}")
+    @admin.app.get(f"{base_url}/")
+    async def redirect_to_dashboard(request: Request):
+        """Перенаправляет на панель управления."""
+        return RedirectResponse(url="/admin/")
     
     # Применяем middleware для аутентификации
     admin.app.add_middleware(AdminAuthMiddleware)
