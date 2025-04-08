@@ -2,7 +2,7 @@ from app.logger import logger
 from pydantic import BaseModel
 from sqlalchemy import select
 from app.dao.base import BaseDAO
-from app.quest.models import Answer, Block, Question
+from app.quest.models import Answer, Block, Question, QuestionInsider
 from sqlalchemy.exc import SQLAlchemyError
 
 class BlocksDAO(BaseDAO):
@@ -49,4 +49,19 @@ class AnswersDAO(BaseDAO):
             return records
         except SQLAlchemyError as e:
             logger.error(f"Ошибка при поиске ответов для вопроса {question_id}: {e}")
+            raise
+
+class QuestionInsiderDAO(BaseDAO):
+    model = QuestionInsider
+
+    async def find_by_question_id(self, question_id: int):
+        """Находит всех инсайдеров для указанного вопроса"""
+        try:
+            query = select(self.model).where(self.model.question_id == question_id)
+            result = await self._session.execute(query)
+            records = result.scalars().all()
+            logger.info(f"Найдено {len(records)} инсайдеров для вопроса {question_id}")
+            return records
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске инсайдеров для вопроса {question_id}: {e}")
             raise

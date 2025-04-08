@@ -1,12 +1,16 @@
-
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import List, Optional
 
 
 class BlockFilter(BaseModel):
-    language_id: int = 1
+    id: Optional[int] = None
+    language_id: Optional[int] = None
 
 class FindQuestionsForBlock(BaseModel):
-    block_id: int | None = None
+    block_id: int
 
 class FindAnswersForQuestion(BaseModel):
-    question_id: int | None = None
+    question_id: int
+
+class FindInsidersForQuestion(BaseModel):
+    question_id: int

@@ -7,9 +7,9 @@ from app.dependencies.auth_dep import get_current_user
 from app.dependencies.dao_dep import get_session_with_commit
 from typing import Optional, Dict, Union
 
-from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO
+from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO, QuestionInsiderDAO
 from app.logger import logger
-from app.quest.schemas import BlockFilter, FindAnswersForQuestion, FindQuestionsForBlock
+from app.quest.schemas import BlockFilter, FindAnswersForQuestion, FindQuestionsForBlock, FindInsidersForQuestion
 from app.quest.models import Attempt, AttemptType, Question
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -588,3 +588,72 @@ async def calculate_team_score_and_coins(command_id: int, session: AsyncSession)
         "score": total_score,
         "coins": total_coins
     }
+
+@router.get("/riddle/{riddle_id}/insiders")
+async def get_riddle_insiders(
+    riddle_id: int,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: Optional[User] = Depends(get_current_user)
+):
+    """
+    Получает список инсайдеров для указанной загадки.
+    Доступно только организаторам.
+    """
+    # Проверяем авторизацию
+    if not user:
+        return JSONResponse(
+            content={"ok": False, "message": "Пользователь не авторизован"},
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+        
+    # Проверяем роль пользователя (только организаторы могут получать информацию об инсайдерах)
+    if not user.role or user.role.name != "organizer":
+        return JSONResponse(
+            content={"ok": False, "message": "Недостаточно прав для выполнения операции"},
+            status_code=status.HTTP_403_FORBIDDEN
+        )
+    
+    try:
+        logger.info(f"Запрос списка инсайдеров для загадки {riddle_id} от организатора {user.id}")
+        
+        # Проверяем существование загадки
+        questions_dao = QuestionsDAO(session)
+        question = await questions_dao.find_one_or_none_by_id(riddle_id)
+        if not question:
+            return JSONResponse(
+                content={"ok": False, "message": "Загадка не найдена"},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Получаем всех инсайдеров для загадки
+        insiders_dao = QuestionInsiderDAO(session)
+        insiders = await insiders_dao.find_by_question_id(riddle_id)
+        
+        # Получаем полную информацию о пользователях-инсайдерах
+        users_dao = UsersDAO(session)
+        insiders_info = []
+        
+        for insider in insiders:
+            insider_user = await users_dao.find_one_or_none_by_id(insider.user_id)
+            if insider_user:
+                insiders_info.append({
+                    "id": insider_user.id,
+                    "full_name": insider_user.full_name,
+                    "telegram_username": insider_user.telegram_username
+                })
+        
+        return JSONResponse(
+            content={
+                "ok": True,
+                "riddle_id": riddle_id,
+                "riddle_title": question.title,
+                "insiders": insiders_info
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении списка инсайдеров для загадки {riddle_id}: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"ok": False, "message": "Внутренняя ошибка сервера"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
