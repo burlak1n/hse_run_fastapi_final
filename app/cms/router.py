@@ -11,12 +11,15 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import io
 import uuid
+import json
+from sqlalchemy import func, select, text, cast, Date
 
 from app.config import DEBUG
 from app.dao.database import engine
 from app.cms import views
 from app.dependencies.auth_dep import get_access_token
 from app.auth.dao import UsersDAO, SessionDAO
+from app.auth.models import User
 from app.logger import logger
 
 # Определяем возвращаемый тип для декораторов
@@ -102,6 +105,7 @@ class AdminDashboardView(AdminPage):
                     <a href="/admin/database/" class="btn">Управление БД</a>
                     <a href="/admin/riddle" class="btn">Создать загадку</a>
                     <a href="/admin/stats/teams" class="btn">Статистика команд</a>
+                    <a href="/admin/stats/" class="btn">Статистика команд</a>
                     <br><br>
                     <a href="/quest" class="btn" style="background-color: #808080;">Вернуться на квест</a>
                 </div>
@@ -597,6 +601,219 @@ def require_organizer_role(func: Callable[..., T]) -> Callable[..., T]:
     return wrapper
 
 
+class AdminStatsView(AdminPage):
+    """Представление для отображения статистик системы."""
+    name = "Статистика"
+    icon = "fa-solid fa-chart-line"
+    
+    async def get_stats_page(self, request: Request) -> HTMLResponse:
+        """Отображает страницу статистики."""
+        content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Статистика системы</title>
+            <link rel="stylesheet" href="/admin/statics/css/sqladmin.css">
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+                .container {
+                    max-width: 1200px;
+                    margin: 20px auto;
+                    padding: 20px;
+                    background: #fff;
+                    border-radius: 5px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                }
+                .chart-container {
+                    width: 100%;
+                    height: 400px;
+                    margin-top: 20px;
+                }
+                .nav-tabs {
+                    display: flex;
+                    border-bottom: 1px solid #dee2e6;
+                    margin-bottom: 20px;
+                }
+                .nav-link {
+                    padding: 10px 15px;
+                    border: 1px solid transparent;
+                    border-top-left-radius: 0.25rem;
+                    border-top-right-radius: 0.25rem;
+                    margin-right: 5px;
+                    cursor: pointer;
+                }
+                .nav-link.active {
+                    color: #495057;
+                    background-color: #fff;
+                    border-color: #dee2e6 #dee2e6 #fff;
+                }
+                .tab-content {
+                    padding: 20px 0;
+                }
+                .tab-pane {
+                    display: none;
+                }
+                .tab-pane.active {
+                    display: block;
+                }
+                .btn {
+                    display: inline-block;
+                    padding: 8px 16px;
+                    background: #4CAF50;
+                    color: white;
+                    border-radius: 4px;
+                    text-decoration: none;
+                    margin-top: 10px;
+                }
+                .btn:hover {
+                    background: #45a049;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <a href="/admin" style="display: inline-block; margin-bottom: 20px; padding: 8px 16px; background-color: #f0f0f0; border-radius: 4px; text-decoration: none; color: #333;">← Назад</a>
+                <h1>Статистика системы</h1>
+                
+                <div class="nav-tabs">
+                    <div class="nav-link active" data-tab="registrations">Регистрации</div>
+                    <div class="nav-link" data-tab="teams">Команды</div>
+                </div>
+                
+                <div class="tab-content">
+                    <div class="tab-pane active" id="registrations">
+                        <h2>Статистика регистраций пользователей</h2>
+                        <div class="chart-container">
+                            <canvas id="registrationsChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane" id="teams">
+                        <h2>Статистика команд</h2>
+                        <div class="chart-container">
+                            <canvas id="teamsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <script>
+                // Получение данных о регистрациях
+                async function fetchRegistrationsData() {
+                    try {
+                        const response = await fetch('/admin/stats/api/registrations');
+                        if (!response.ok) {
+                            throw new Error('Ошибка при получении данных');
+                        }
+                        return await response.json();
+                    } catch (error) {
+                        console.error('Ошибка:', error);
+                        return { dates: [], counts: [] };
+                    }
+                }
+                
+                // Отображение графика регистраций
+                async function renderRegistrationsChart() {
+                    const data = await fetchRegistrationsData();
+                    
+                    const ctx = document.getElementById('registrationsChart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.dates,
+                            datasets: [{
+                                label: 'Количество регистраций',
+                                data: data.counts,
+                                borderColor: 'rgb(75, 192, 192)',
+                                tension: 0.1,
+                                fill: false,
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                pointBackgroundColor: 'rgb(75, 192, 192)',
+                                pointRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        precision: 0
+                                    }
+                                }
+                            },
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Динамика регистраций пользователей'
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Обработка переключения вкладок
+                document.querySelectorAll('.nav-link').forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        // Убираем активный класс у всех вкладок и контента
+                        document.querySelectorAll('.nav-link').forEach(t => t.classList.remove('active'));
+                        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                        
+                        // Активируем выбранную вкладку и соответствующий контент
+                        tab.classList.add('active');
+                        document.getElementById(tab.dataset.tab).classList.add('active');
+                    });
+                });
+                
+                // Загрузка данных при загрузке страницы
+                document.addEventListener('DOMContentLoaded', () => {
+                    renderRegistrationsChart();
+                });
+            </script>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=content)
+    
+    async def get_registrations_data(self, request: Request) -> JSONResponse:
+        """Возвращает данные о регистрациях пользователей по дням."""
+        # Получаем сессию для работы с БД
+        async with AsyncSession(engine) as session:
+            # SQL-запрос для получения количества регистраций по датам
+            query = select(
+                cast(User.created_at, Date).label('date'),
+                func.count(User.id).label('count')
+            ).group_by(
+                cast(User.created_at, Date)
+            ).order_by(
+                cast(User.created_at, Date)
+            )
+            
+            # Выполняем запрос
+            result = await session.execute(query)
+            registrations_by_date = result.all()
+            
+            # Преобразуем результат запроса в нужный формат
+            dates = []
+            counts = []
+            
+            for row in registrations_by_date:
+                dates.append(row.date.strftime('%d.%m.%Y'))
+                counts.append(row.count)
+                
+            return JSONResponse(content={
+                "dates": dates,
+                "counts": counts
+            })
+    
+    def register(self, admin: Admin) -> None:
+        """Регистрирует маршруты для статистики."""
+        admin.app.get("/admin/stats")(require_organizer_role(self.get_stats_page))
+        admin.app.get("/admin/stats/")(require_organizer_role(self.get_stats_page))
+        admin.app.get("/admin/stats/api/registrations")(require_organizer_role(self.get_registrations_data))
+
+
 def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     """Инициализирует админ-панель с проверкой прав доступа."""
     
@@ -626,6 +843,10 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     # Добавляем страницу создания загадок
     riddle_view = AdminRiddleView()
     riddle_view.register(admin)
+    
+    # Добавляем страницу статистики
+    stats_view = AdminStatsView()
+    stats_view.register(admin)
     
     # Автоматически регистрируем все классы ModelView из модуля views
     for name, view in vars(views).items():
