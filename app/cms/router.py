@@ -104,8 +104,7 @@ class AdminDashboardView(AdminPage):
                     <h2>Быстрые действия</h2>
                     <a href="/admin/database/" class="btn">Управление БД</a>
                     <a href="/admin/riddle" class="btn">Создать загадку</a>
-                    <a href="/admin/stats/teams" class="btn">Статистика команд</a>
-                    <a href="/admin/stats/" class="btn">Статистика команд</a>
+                    <a href="/admin/statistics/" class="btn">Статистика команд</a>
                     <br><br>
                     <a href="/quest" class="btn" style="background-color: #808080;">Вернуться на квест</a>
                 </div>
@@ -701,35 +700,57 @@ class AdminStatsView(AdminPage):
                 // Получение данных о регистрациях
                 async function fetchRegistrationsData() {
                     try {
-                        const response = await fetch('/admin/stats/api/registrations');
+                        const response = await fetch('/api/auth/stats/registrations');
                         if (!response.ok) {
                             throw new Error('Ошибка при получении данных');
                         }
-                        return await response.json();
+                        const data = await response.json();
+                        if (!data.ok) {
+                            throw new Error(data.message || 'Ошибка получения данных');
+                        }
+                        return data.stats;
                     } catch (error) {
                         console.error('Ошибка:', error);
-                        return { dates: [], counts: [] };
+                        return null;
                     }
                 }
                 
                 // Отображение графика регистраций
                 async function renderRegistrationsChart() {
-                    const data = await fetchRegistrationsData();
+                    const stats = await fetchRegistrationsData();
+                    if (!stats) {
+                        document.getElementById('registrationsChart').innerHTML = 
+                            '<div style="text-align: center; padding: 20px;">Не удалось загрузить данные статистики</div>';
+                        return;
+                    }
+                    
+                    // Создаем данные для диаграммы распределения размеров команд
+                    const teamSizes = Object.keys(stats.team_distribution).map(size => parseInt(size));
+                    const teamCounts = teamSizes.map(size => stats.team_distribution[size]);
                     
                     const ctx = document.getElementById('registrationsChart').getContext('2d');
+                    
+                    // Создаем диаграмму
                     new Chart(ctx, {
-                        type: 'line',
+                        type: 'bar',
                         data: {
-                            labels: data.dates,
+                            labels: ['Всего пользователей', 'Активных пользователей', 'Команд', 'Ищущих команду'],
                             datasets: [{
-                                label: 'Количество регистраций',
-                                data: data.counts,
-                                borderColor: 'rgb(75, 192, 192)',
-                                tension: 0.1,
-                                fill: false,
-                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                                pointBackgroundColor: 'rgb(75, 192, 192)',
-                                pointRadius: 4
+                                label: 'Количество',
+                                data: [stats.total_users, stats.active_users, stats.total_teams, stats.users_looking_for_team],
+                                backgroundColor: [
+                                    'rgba(54, 162, 235, 0.6)',
+                                    'rgba(75, 192, 192, 0.6)',
+                                    'rgba(255, 159, 64, 0.6)',
+                                    'rgba(153, 102, 255, 0.6)'
+                                ],
+                                borderColor: [
+                                    'rgb(54, 162, 235)',
+                                    'rgb(75, 192, 192)',
+                                    'rgb(255, 159, 64)',
+                                    'rgb(153, 102, 255)'
+                                ],
+                                borderWidth: 1
                             }]
                         },
                         options: {
@@ -746,11 +767,180 @@ class AdminStatsView(AdminPage):
                             plugins: {
                                 title: {
                                     display: true,
-                                    text: 'Динамика регистраций пользователей'
+                                    text: 'Общая статистика регистраций'
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return context.raw;
+                                        }
+                                    }
                                 }
                             }
                         }
                     });
+                    
+                    // Добавляем дополнительную диаграмму для распределения размеров команд
+                    const teamDistributionContainer = document.createElement('div');
+                    teamDistributionContainer.className = 'chart-container';
+                    teamDistributionContainer.style.marginTop = '30px';
+                    
+                    const teamDistributionCanvas = document.createElement('canvas');
+                    teamDistributionCanvas.id = 'teamDistributionChart';
+                    teamDistributionContainer.appendChild(teamDistributionCanvas);
+                    
+                    document.getElementById('registrations').appendChild(teamDistributionContainer);
+                    
+                    const teamCtx = document.getElementById('teamDistributionChart').getContext('2d');
+                    new Chart(teamCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: teamSizes.map(size => `${size} участников`),
+                            datasets: [{
+                                label: 'Количество команд',
+                                data: teamCounts,
+                                backgroundColor: 'rgba(255, 159, 64, 0.6)',
+                                borderColor: 'rgb(255, 159, 64)',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        precision: 0
+                                    }
+                                }
+                            },
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Распределение команд по размеру'
+                                }
+                            }
+                        }
+                    });
+                    
+                    // Добавляем график регистраций по дням
+                    if (stats.registrations_by_date && stats.registrations_by_date.length > 0) {
+                        const registrationsByDateContainer = document.createElement('div');
+                        registrationsByDateContainer.className = 'chart-container';
+                        registrationsByDateContainer.style.marginTop = '30px';
+                        
+                        const registrationsByDateCanvas = document.createElement('canvas');
+                        registrationsByDateCanvas.id = 'registrationsByDateChart';
+                        registrationsByDateContainer.appendChild(registrationsByDateCanvas);
+                        
+                        document.getElementById('registrations').appendChild(registrationsByDateContainer);
+                        
+                        // Подготавливаем данные для графика
+                        const dates = stats.registrations_by_date.map(item => item.date);
+                        const counts = stats.registrations_by_date.map(item => item.count);
+                        
+                        // Создаем кумулятивный массив для общего количества регистраций
+                        const cumulativeCounts = [];
+                        let sum = 0;
+                        for (const count of counts) {
+                            sum += count;
+                            cumulativeCounts.push(sum);
+                        }
+                        
+                        const registrationsByDateCtx = document.getElementById('registrationsByDateChart').getContext('2d');
+                        new Chart(registrationsByDateCtx, {
+                            type: 'line',
+                            data: {
+                                labels: dates,
+                                datasets: [
+                                    {
+                                        label: 'Регистрации за день',
+                                        data: counts,
+                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                        borderColor: 'rgb(54, 162, 235)',
+                                        borderWidth: 2,
+                                        tension: 0.1,
+                                        yAxisID: 'y'
+                                    },
+                                    {
+                                        label: 'Всего регистраций',
+                                        data: cumulativeCounts,
+                                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                        borderColor: 'rgb(75, 192, 192)',
+                                        borderWidth: 2,
+                                        tension: 0.1,
+                                        yAxisID: 'y1'
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        position: 'left',
+                                        title: {
+                                            display: true,
+                                            text: 'Регистрации за день'
+                                        },
+                                        ticks: {
+                                            precision: 0
+                                        }
+                                    },
+                                    y1: {
+                                        beginAtZero: true,
+                                        position: 'right',
+                                        title: {
+                                            display: true,
+                                            text: 'Всего регистраций'
+                                        },
+                                        grid: {
+                                            drawOnChartArea: false
+                                        },
+                                        ticks: {
+                                            precision: 0
+                                        }
+                                    }
+                                },
+                                plugins: {
+                                    title: {
+                                        display: true,
+                                        text: 'Динамика регистраций по дням'
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Добавляем информационную панель со статистикой
+                    const statsContainer = document.createElement('div');
+                    statsContainer.className = 'stats-info';
+                    statsContainer.style.marginTop = '30px';
+                    statsContainer.style.padding = '15px';
+                    statsContainer.style.backgroundColor = '#f8f9fa';
+                    statsContainer.style.borderRadius = '5px';
+                    
+                    const averageTeamSize = stats.average_team_size.toFixed(1);
+                    
+                    statsContainer.innerHTML = `
+                        <h3>Основные показатели</h3>
+                        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <p><strong>Всего пользователей:</strong> ${stats.total_users}</p>
+                                <p><strong>Активных пользователей:</strong> ${stats.active_users}</p>
+                                <p><strong>Процент активации:</strong> ${stats.total_users ? ((stats.active_users / stats.total_users) * 100).toFixed(1) : 0}%</p>
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <p><strong>Количество команд:</strong> ${stats.total_teams}</p>
+                                <p><strong>Средний размер команды:</strong> ${averageTeamSize}</p>
+                                <p><strong>Пользователей, ищущих команду:</strong> ${stats.users_looking_for_team}</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.getElementById('registrations').appendChild(statsContainer);
                 }
                 
                 // Обработка переключения вкладок
@@ -809,9 +999,9 @@ class AdminStatsView(AdminPage):
     
     def register(self, admin: Admin) -> None:
         """Регистрирует маршруты для статистики."""
-        admin.app.get("/admin/stats")(require_organizer_role(self.get_stats_page))
-        admin.app.get("/admin/stats/")(require_organizer_role(self.get_stats_page))
-        admin.app.get("/admin/stats/api/registrations")(require_organizer_role(self.get_registrations_data))
+        admin.app.get("/admin/statistics")(require_organizer_role(self.get_stats_page))
+        admin.app.get("/admin/statistics/")(require_organizer_role(self.get_stats_page))
+        admin.app.get("/api/auth/stats/registrations")(require_organizer_role(self.get_registrations_data))
 
 
 def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:

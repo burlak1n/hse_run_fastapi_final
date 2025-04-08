@@ -111,6 +111,110 @@ class UsersDAO(BaseDAO):
             logger.error(f"Ошибка при обновлении ФИО пользователя: {e}")
             raise
 
+    async def count_all_users(self) -> int:
+        """
+        Подсчитывает общее количество зарегистрированных пользователей
+        """
+        logger.info("Подсчет общего количества пользователей")
+        try:
+            from sqlalchemy import func
+            query = select(func.count(self.model.id))
+            result = await self._session.execute(query)
+            count = result.scalar()
+            logger.info(f"Общее количество пользователей: {count}")
+            return count
+        except Exception as e:
+            logger.error(f"Ошибка при подсчете пользователей: {e}")
+            raise
+    
+    async def count_users_with_role(self) -> int:
+        """
+        Подсчитывает количество активных пользователей (с установленной ролью)
+        """
+        logger.info("Подсчет количества пользователей с ролью")
+        try:
+            from sqlalchemy import func
+            query = select(func.count(self.model.id)).where(self.model.role_id.isnot(None))
+            result = await self._session.execute(query)
+            count = result.scalar()
+            logger.info(f"Количество пользователей с ролью: {count}")
+            return count
+        except Exception as e:
+            logger.error(f"Ошибка при подсчете пользователей с ролью: {e}")
+            raise
+    
+    async def count_users_looking_for_friends(self) -> int:
+        """
+        Подсчитывает количество пользователей, ищущих команду
+        """
+        logger.info("Подсчет количества пользователей, ищущих команду")
+        try:
+            from sqlalchemy import func
+            query = select(func.count(self.model.id)).where(self.model.is_looking_for_friends == True)
+            result = await self._session.execute(query)
+            count = result.scalar()
+            logger.info(f"Количество пользователей, ищущих команду: {count}")
+            return count
+        except Exception as e:
+            logger.error(f"Ошибка при подсчете пользователей, ищущих команду: {e}")
+            raise
+
+    async def get_registrations_by_date(self) -> list:
+        """
+        Получает статистику регистраций пользователей по дням
+        
+        Returns:
+            Список словарей с датой и количеством регистраций
+        """
+        logger.info("Получение статистики регистраций по дням")
+        try:
+            from sqlalchemy import func
+            
+            # Используем функцию date SQLAlchemy для группировки по дате
+            query = (
+                select(
+                    func.date(self.model.created_at).label('date'),
+                    func.count(self.model.id).label('count')
+                )
+                .group_by(func.date(self.model.created_at))
+                .order_by(func.date(self.model.created_at))
+            )
+            
+            # Выполняем запрос
+            logger.info(f"Выполняем запрос для получения регистраций по дням")
+            result = await self._session.execute(query)
+            
+            logger.info(f"Запрос выполнен успешно, получаем результаты")
+            
+            # Получаем результаты
+            registrations_by_date = result.all()
+            logger.info(f"Получено {len(registrations_by_date)} записей")
+            
+            # Форматируем результат для удобства использования
+            formatted_result = []
+            
+            for row in registrations_by_date:
+                try:
+                    # Преобразуем дату в строку в формате дд.мм.гггг
+                    if hasattr(row.date, 'strftime'):
+                        date_str = row.date.strftime('%d.%m.%Y')
+                    else:
+                        date_str = str(row.date)
+                    
+                    formatted_result.append({
+                        "date": date_str,
+                        "count": row.count
+                    })
+                except Exception as e:
+                    logger.error(f"Ошибка при форматировании записи: {e}, строка: {row}")
+            
+            logger.info(f"Получена статистика регистраций по дням: {len(formatted_result)} записей")
+            return formatted_result
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики регистраций по дням: {e}")
+            # В случае ошибки возвращаем пустой список
+            return []
+
 class CommandsUsersDAO(BaseDAO):
     model = CommandsUser
 

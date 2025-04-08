@@ -874,3 +874,94 @@ def format_participants(command_users, include_role=True) -> List[Dict[str, Any]
         
     return participants
 
+@router.get("/stats/registrations")
+async def get_registration_stats(
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: Optional[User] = Depends(get_current_user)
+):
+    """Получает статистику по зарегистрированным пользователям и командам"""
+    logger.info("Запрос статистики регистраций")
+    
+    # Проверяем авторизацию и роль пользователя
+    if not user or user.role.name not in ["organizer"]:
+        logger.warning(f"Отказано в доступе пользователю {user.id if user else 'неавторизован'}")
+        return JSONResponse(
+            content={"ok": False, "message": "Недостаточно прав для просмотра статистики"},
+            status_code=status.HTTP_403_FORBIDDEN
+        )
+    
+    try:
+        # Получаем DAO для работы с данными
+        users_dao = UsersDAO(session)
+        commands_dao = CommandsDAO(session)
+        event_dao = EventsDAO(session)
+        
+        # Получаем текущее событие
+        curr_event_id = await event_dao.get_event_id_by_name()
+        if not curr_event_id:
+            logger.error("Не удалось получить информацию о текущем событии")
+            return JSONResponse(
+                content={"ok": False, "message": "Не удалось получить информацию о текущем событии"},
+                status_code=500
+            )
+        
+        # Импортируем необходимые функции для загрузки связанных объектов
+        from sqlalchemy.orm import selectinload
+        # Импортируем модель Command
+        from app.auth.models import Command
+        
+        # Получаем команды текущего события с загрузкой связанных пользователей
+        teams = await commands_dao.find_all_by_event(
+            curr_event_id,
+            options=[selectinload(Command.users)]
+        )
+        
+        total_teams = len(teams)
+        
+        # Получаем распределение по командам
+        team_sizes = {}
+        for i in range(1, 7):  # Команды от 1 до 6 участников
+            team_sizes[i] = len([team for team in teams if len(team.users) == i])
+            
+        # Подсчитываем общее количество пользователей и активных пользователей
+        total_users = await users_dao.count_all_users()
+        active_users = await users_dao.count_users_with_role()
+        looking_for_team = await users_dao.count_users_looking_for_friends()
+        
+        # Получаем статистику регистраций по дням
+        try:
+            registrations_by_date = await users_dao.get_registrations_by_date()
+            logger.info(f"Получены данные о регистрациях по дням: {len(registrations_by_date)} записей")
+        except Exception as e:
+            logger.error(f"Ошибка при получении данных о регистрациях по дням: {e}")
+            registrations_by_date = []
+        
+        # Вычисляем средний размер команды
+        average_team_size = 0
+        if total_teams > 0:
+            team_members_sum = sum(size * count for size, count in team_sizes.items())
+            average_team_size = team_members_sum / total_teams
+        
+        # Собираем статистику
+        stats = {
+            "total_users": total_users,
+            "active_users": active_users,
+            "total_teams": total_teams,
+            "team_distribution": team_sizes,
+            "users_looking_for_team": looking_for_team,
+            "average_team_size": average_team_size,
+            "registrations_by_date": registrations_by_date
+        }
+        
+        logger.info(f"Статистика регистраций успешно собрана")
+        return JSONResponse(
+            content={"ok": True, "stats": stats}
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении статистики регистраций: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"ok": False, "message": "Внутренняя ошибка сервера"},
+            status_code=500
+        )
+
