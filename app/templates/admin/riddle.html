@@ -1,0 +1,230 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Создание загадки{% endblock %}
+
+{% block header %}Создание загадки{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-group {
+        margin-bottom: 15px;
+    }
+    label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    textarea {
+        width: 100%;
+        height: 150px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        resize: vertical;
+        box-sizing: border-box;
+    }
+    
+    input[type="number"],
+    input[type="color"],
+    select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+    button[type="submit"] {
+        padding: 10px 15px;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        width: 100%;
+        font-family: 'Involve', Arial, sans-serif;
+    }
+    
+    .preview {
+        margin-top: 20px;
+        border: 1px dashed #ccc;
+        padding: 10px;
+        text-align: center;
+    }
+    .preview img {
+        max-width: 100%;
+        height: auto;
+    }
+    #result-container {
+        display: none;
+        margin-top: 20px;
+    }
+    #download-btn {
+        display: block;
+        margin: 10px auto;
+        background: #007bff;
+        width: 100%;
+        text-align: center;
+        padding: 10px;
+        box-sizing: border-box;
+    }
+    .align-options {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    .align-option {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .align-option.selected {
+        background-color: #e0f7fa;
+        border-color: #4CAF50;
+    }
+    
+    /* Адаптивные стили */
+    @media (min-width: 768px) {
+        input[type="number"],
+        input[type="color"],
+        select {
+            width: 50%;
+        }
+        
+        button[type="submit"] {
+            width: auto;
+        }
+        
+        #download-btn {
+            width: auto;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        .align-options {
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .preview {
+            padding: 5px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<form id="riddle-form">
+    <div class="form-group">
+        <label for="riddle-text">Текст загадки:</label>
+        <textarea id="riddle-text" name="text" placeholder="Введите текст загадки..." required></textarea>
+    </div>
+    
+    <div class="form-group">
+        <label>Выравнивание текста:</label>
+        <div class="align-options">
+            <div class="align-option" data-align="left">
+                <span>По левому краю</span>
+            </div>
+            <div class="align-option selected" data-align="center">
+                <span>По центру</span>
+            </div>
+            <div class="align-option" data-align="right">
+                <span>По правому краю</span>
+            </div>
+        </div>
+        <input type="hidden" id="text-align" name="text_align" value="center">
+    </div>
+    
+    <div class="form-group">
+        <label for="font-size">Размер шрифта:</label>
+        <input type="number" id="font-size" name="font_size" value="72" min="12" max="124">
+    </div>
+    
+    <div class="form-group">
+        <label for="text-color">Цвет текста:</label>
+        <input type="color" id="text-color" name="text_color" value="#000">
+    </div>
+    
+    <div class="form-group">
+        <label for="vertical-position">Вертикальное положение:</label>
+        <select id="vertical-position" name="vertical_position" value="middle">
+            <option value="top">Сверху</option>
+            <option value="middle" selected>Посередине</option>
+            <option value="bottom">Снизу</option>
+        </select>
+    </div>
+    
+    <button type="submit">Создать загадку</button>
+</form>
+
+<div id="result-container">
+    <h2>Результат:</h2>
+    <div class="preview">
+        <img id="result-image" src="" alt="Загадка">
+    </div>
+    <a id="download-btn" href="#" class="button" download="riddle.jpg">Скачать изображение</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Обработка выбора выравнивания
+    document.querySelectorAll('.align-option').forEach(option => {
+        option.addEventListener('click', () => {
+            // Снимаем выделение со всех опций
+            document.querySelectorAll('.align-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+            
+            // Выделяем выбранную опцию
+            option.classList.add('selected');
+            
+            // Обновляем скрытое поле
+            document.getElementById('text-align').value = option.dataset.align;
+        });
+    });
+    
+    // Обработка отправки формы
+    document.getElementById('riddle-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData();
+        formData.append('text', document.getElementById('riddle-text').value);
+        formData.append('font_size', document.getElementById('font-size').value);
+        formData.append('text_color', document.getElementById('text-color').value);
+        formData.append('text_align', document.getElementById('text-align').value);
+        formData.append('vertical_position', document.getElementById('vertical-position').value);
+        
+        try {
+            const response = await fetch('/admin/riddle/generate', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                
+                document.getElementById('result-image').src = imageUrl;
+                document.getElementById('download-btn').href = imageUrl;
+                document.getElementById('result-container').style.display = 'block';
+                
+                // Прокрутка к результату
+                document.getElementById('result-container').scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            } else {
+                alert('Ошибка при создании загадки');
+            }
+        } catch (error) {
+            console.error('Ошибка:', error);
+            alert('Произошла ошибка при отправке запроса');
+        }
+    });
+</script>
+{% endblock %} 

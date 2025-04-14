@@ -936,6 +936,24 @@ async def get_registration_stats(
             logger.error(f"Ошибка при получении данных о регистрациях по дням: {e}")
             registrations_by_date = []
         
+        # Получаем статистику пользователей по ролям
+        try:
+            roles_distribution = await users_dao.get_users_by_role()
+            logger.info(f"Получены данные о распределении пользователей по ролям")
+        except Exception as e:
+            logger.error(f"Ошибка при получении данных о распределении пользователей по ролям: {e}")
+            roles_distribution = {}
+            
+        # Получаем статистику пользователей с необычным ФИО
+        try:
+            unusual_name_count = await users_dao.count_users_with_unusual_name()
+            unusual_name_registrations = await users_dao.get_unusual_name_registrations_by_date()
+            logger.info(f"Получены данные о пользователях с необычным ФИО: {unusual_name_count}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении данных о пользователях с необычным ФИО: {e}")
+            unusual_name_count = 0
+            unusual_name_registrations = []
+        
         # Вычисляем средний размер команды
         average_team_size = 0
         if total_teams > 0:
@@ -950,7 +968,10 @@ async def get_registration_stats(
             "team_distribution": team_sizes,
             "users_looking_for_team": looking_for_team,
             "average_team_size": average_team_size,
-            "registrations_by_date": registrations_by_date
+            "registrations_by_date": registrations_by_date,
+            "roles_distribution": roles_distribution,
+            "unusual_name_count": unusual_name_count,
+            "unusual_name_registrations": unusual_name_registrations
         }
         
         logger.info(f"Статистика регистраций успешно собрана")

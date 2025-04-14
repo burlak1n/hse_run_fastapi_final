@@ -1,0 +1,134 @@
+{% extends "admin/base.html" %}
+{% from "admin/components/statistics.html" import render_statistics_component, statistics_scripts %}
+
+{% block title %}Панель управления{% endblock %}
+
+{% block header %}Панель управления{% endblock %}
+
+{% block extra_css %}
+<style>
+    .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+    }
+    
+    .action-buttons .btn {
+        margin-top: 0;
+    }
+    
+    .btn-return {
+        background-color: #808080;
+        margin-top: 15px;
+    }
+    
+    .chart-container {
+        width: 100%;
+        height: 300px;
+        margin-top: 20px;
+        box-sizing: border-box;
+    }
+    
+    .stats-info {
+        margin-top: 30px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+    }
+    
+    .stats-panel {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+    
+    .stats-column {
+        flex: 1;
+        min-width: 200px;
+    }
+    
+    .stats-charts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-top: 20px;
+    }
+    
+    .stats-chart {
+        flex: 1;
+        min-width: 400px;
+    }
+    
+    @media (max-width: 768px) {
+        .action-buttons {
+            gap: 8px;
+        }
+        
+        .chart-container {
+            height: 250px;
+        }
+        
+        .stats-chart {
+            min-width: 100%;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        .action-buttons {
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .action-buttons .btn {
+            width: 100%;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        
+        .chart-container {
+            height: 200px;
+        }
+        
+        .stats-panel {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .stats-column {
+            min-width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Добро пожаловать, {{ user.full_name if user else 'Администратор' }}!</h2>
+    <p>У вас есть доступ к управлению системой как <strong>организатор</strong>.</p>
+</div>
+
+<div class="card">
+    <h2>Быстрые действия</h2>
+    <div class="action-buttons">
+        <a href="/admin/database/" class="btn">Управление БД</a>
+        <a href="/admin/riddle" class="btn">Создать загадку</a>
+    </div>
+    <a href="/quest" class="btn btn-return">Вернуться на квест</a>
+</div>
+
+<div class="card">
+    <h2>Статистика системы</h2>
+    {{ render_statistics_component() }}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ statistics_scripts() }}
+<script>
+    // Загрузка данных при загрузке страницы
+    document.addEventListener('DOMContentLoaded', () => {
+        renderStatistics();
+    });
+</script>
+{% endblock %} 

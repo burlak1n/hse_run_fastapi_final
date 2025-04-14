@@ -215,6 +215,118 @@ class UsersDAO(BaseDAO):
             # В случае ошибки возвращаем пустой список
             return []
 
+    async def get_users_by_role(self) -> dict:
+        """
+        Получает распределение пользователей по ролям
+        
+        Returns:
+            Словарь с названиями ролей и количеством пользователей с этой ролью
+        """
+        logger.info("Получение статистики пользователей по ролям")
+        try:
+            from sqlalchemy import func
+            from app.auth.models import Role
+            
+            query = (
+                select(
+                    Role.name,
+                    func.count(self.model.id).label('count')
+                )
+                .join(Role, self.model.role_id == Role.id, isouter=True)
+                .group_by(Role.name)
+            )
+            
+            result = await self._session.execute(query)
+            role_counts = result.all()
+            
+            # Формируем результат в виде словаря {роль: количество}
+            roles_distribution = {}
+            for row in role_counts:
+                role_name = row.name if row.name else 'неактивные'
+                roles_distribution[role_name] = row.count
+            
+            logger.info(f"Получена статистика пользователей по ролям: {roles_distribution}")
+            return roles_distribution
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики пользователей по ролям: {e}")
+            return {}
+
+    async def count_users_with_unusual_name(self) -> int:
+        """
+        Подсчитывает количество пользователей, у которых ФИО содержит не 3 слова
+        
+        Returns:
+            Количество пользователей с необычным ФИО
+        """
+        logger.info("Подсчет пользователей с необычным ФИО")
+        try:
+            from sqlalchemy import func, text
+            
+            # Для SQLite используем функцию length и подсчет пробелов для определения числа слов
+            # Если число пробелов не равно 2, значит слов не 3
+            query = (
+                select(func.count(self.model.id))
+                .where(
+                    text("(length(trim(full_name)) - length(replace(trim(full_name), ' ', ''))) != 2")
+                )
+            )
+            
+            result = await self._session.execute(query)
+            count = result.scalar()
+            
+            logger.info(f"Количество пользователей с необычным ФИО: {count}")
+            return count
+        except Exception as e:
+            logger.error(f"Ошибка при подсчете пользователей с необычным ФИО: {e}")
+            return 0
+            
+    async def get_unusual_name_registrations_by_date(self) -> list:
+        """
+        Получает статистику регистраций пользователей с необычным ФИО по дням
+        
+        Returns:
+            Список словарей с датой и количеством регистраций
+        """
+        logger.info("Получение статистики регистраций пользователей с необычным ФИО по дням")
+        try:
+            from sqlalchemy import func, text
+            
+            query = (
+                select(
+                    func.date(self.model.created_at).label('date'),
+                    func.count(self.model.id).label('count')
+                )
+                .where(
+                    text("(length(trim(full_name)) - length(replace(trim(full_name), ' ', ''))) != 2")
+                )
+                .group_by(func.date(self.model.created_at))
+                .order_by(func.date(self.model.created_at))
+            )
+            
+            result = await self._session.execute(query)
+            registrations_by_date = result.all()
+            
+            formatted_result = []
+            for row in registrations_by_date:
+                try:
+                    if hasattr(row.date, 'strftime'):
+                        date_str = row.date.strftime('%d.%m.%Y')
+                    else:
+                        date_str = str(row.date)
+                    
+                    formatted_result.append({
+                        "date": date_str,
+                        "count": row.count
+                    })
+                except Exception as e:
+                    logger.error(f"Ошибка при форматировании записи: {e}, строка: {row}")
+            
+            logger.info(f"Получена статистика регистраций пользователей с необычным ФИО по дням: {len(formatted_result)} записей")
+            return formatted_result
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики регистраций пользователей с необычным ФИО по дням: {e}")
+            return []
+
 class CommandsUsersDAO(BaseDAO):
     model = CommandsUser
 

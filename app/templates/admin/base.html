@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}HSE RUN Админка{% endblock %}</title>
+    <link rel="stylesheet" href="/admin/statics/css/sqladmin.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% include "admin/components/styles.html" %}
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    {% include "admin/components/logo.html" %}
+
+    <div class="container">
+        {% if request.path != '/admin' %}
+            <a href="/admin" class="back-link">← Назад</a>
+        {% else %}
+            <a href="/" class="back-link">← На главную</a>
+        {% endif %}
+        
+        {% block content %}{% endblock %}
+    </div>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html> 

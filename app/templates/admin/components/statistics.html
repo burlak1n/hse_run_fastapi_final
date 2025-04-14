@@ -1,0 +1,389 @@
+{% macro render_statistics_component() %}
+<div id="statistics-component">
+    <div id="stats-loading">Загрузка статистики...</div>
+    <div id="stats-error" style="display: none; color: red;">Не удалось загрузить статистику</div>
+    <div id="stats-content" style="display: none;">
+        <!-- Основные метрики -->
+        <div class="card" style="display: inline-block; width: 30%; margin-right: 2%;">
+            <div class="chart-container">
+                <canvas id="registrationsChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Статистика по ролям -->
+        <div class="card" style="display: inline-block; width: 30%; margin-right: 2%;">
+            <div class="chart-container">
+                <canvas id="rolesDistributionChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Статистика по размерам команд -->
+        <div class="card" style="display: inline-block; width: 30%;">
+            <div class="chart-container">
+                <canvas id="teamDistributionChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Динамика регистраций -->
+        <div class="card">
+            <div class="chart-container">
+                <canvas id="registrationsByDateChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Информационная панель со статистикой -->
+        <div class="card" id="stats-info-container"></div>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro statistics_scripts() %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Получение данных о регистрациях
+    async function fetchRegistrationsData() {
+        try {
+            const response = await fetch('/api/auth/stats/registrations');
+            if (!response.ok) {
+                throw new Error('Ошибка при получении данных');
+            }
+            const data = await response.json();
+            if (!data.ok) {
+                throw new Error(data.message || 'Ошибка получения данных');
+            }
+            return data.stats;
+        } catch (error) {
+            console.error('Ошибка:', error);
+            return null;
+        }
+    }
+    
+    // Отображение графика регистраций
+    async function renderStatistics() {
+        const statsLoading = document.getElementById('stats-loading');
+        const statsError = document.getElementById('stats-error');
+        const statsContent = document.getElementById('stats-content');
+        
+        try {
+            const stats = await fetchRegistrationsData();
+            if (!stats) {
+                throw new Error('Не удалось получить статистику');
+            }
+            
+            // Скрываем загрузку и показываем контент
+            statsLoading.style.display = 'none';
+            statsContent.style.display = 'block';
+            
+            // Основной график регистраций
+            const ctx = document.getElementById('registrationsChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Всего', 'Активных', 'Команд', 'В поиске'],
+                    datasets: [{
+                        label: 'Количество',
+                        data: [stats.total_users, stats.active_users, stats.total_teams, stats.users_looking_for_team],
+                        backgroundColor: [
+                            'rgba(54, 162, 235, 0.6)',
+                            'rgba(75, 192, 192, 0.6)',
+                            'rgba(255, 159, 64, 0.6)',
+                            'rgba(153, 102, 255, 0.6)'
+                        ],
+                        borderColor: [
+                            'rgb(54, 162, 235)',
+                            'rgb(75, 192, 192)',
+                            'rgb(255, 159, 64)',
+                            'rgb(153, 102, 255)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: 10
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Общая статистика регистраций',
+                            font: {
+                                size: 12
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.raw;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Диаграмма распределения размеров команд
+            const teamSizes = Object.keys(stats.team_distribution).map(size => parseInt(size));
+            const teamCounts = teamSizes.map(size => stats.team_distribution[size]);
+            
+            const teamCtx = document.getElementById('teamDistributionChart').getContext('2d');
+            new Chart(teamCtx, {
+                type: 'bar',
+                data: {
+                    labels: teamSizes.map(size => `${size}`),
+                    datasets: [{
+                        label: 'Количество команд',
+                        data: teamCounts,
+                        backgroundColor: 'rgba(255, 159, 64, 0.6)',
+                        borderColor: 'rgb(255, 159, 64)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: 10
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Распределение команд по размеру',
+                            font: {
+                                size: 12
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // График распределения пользователей по ролям
+            if (stats.roles_distribution) {
+                const roleNames = Object.keys(stats.roles_distribution);
+                const roleCounts = roleNames.map(role => stats.roles_distribution[role]);
+                
+                const roleColors = [
+                    'rgba(75, 192, 192, 0.6)',
+                    'rgba(54, 162, 235, 0.6)',
+                    'rgba(255, 159, 64, 0.6)',
+                    'rgba(153, 102, 255, 0.6)',
+                    'rgba(255, 99, 132, 0.6)',
+                    'rgba(255, 205, 86, 0.6)'
+                ];
+                
+                const roleBorderColors = roleColors.map(color => color.replace('0.6', '1'));
+                
+                const rolesCtx = document.getElementById('rolesDistributionChart').getContext('2d');
+                new Chart(rolesCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: roleNames,
+                        datasets: [{
+                            label: 'Количество пользователей',
+                            data: roleCounts,
+                            backgroundColor: roleColors.slice(0, roleNames.length),
+                            borderColor: roleBorderColors.slice(0, roleNames.length),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        layout: {
+                            padding: 10
+                        },
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Распределение пользователей по ролям',
+                                font: {
+                                    size: 12
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.raw;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = Math.round((value / total) * 100);
+                                        return `${label}: ${value} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // График регистраций по дням
+            if (stats.registrations_by_date && stats.registrations_by_date.length > 0) {
+                // Подготавливаем данные для графика
+                const dates = stats.registrations_by_date.map(item => item.date);
+                const counts = stats.registrations_by_date.map(item => item.count);
+                
+                // Подготавливаем данные для пользователей с необычным ФИО
+                const unusualDates = {};
+                if (stats.unusual_name_registrations && stats.unusual_name_registrations.length > 0) {
+                    stats.unusual_name_registrations.forEach(item => {
+                        unusualDates[item.date] = item.count;
+                    });
+                }
+                
+                // Создаем массив с данными для пользователей с необычным ФИО, соответствующий датам общих регистраций
+                const unusualCounts = dates.map(date => unusualDates[date] || 0);
+                
+                // Создаем кумулятивный массив для общего количества регистраций
+                const cumulativeCounts = [];
+                let sum = 0;
+                for (const count of counts) {
+                    sum += count;
+                    cumulativeCounts.push(sum);
+                }
+                
+                // Создаем кумулятивный массив для пользователей с необычным ФИО
+                const cumulativeUnusualCounts = [];
+                let unusualSum = 0;
+                for (const count of unusualCounts) {
+                    unusualSum += count;
+                    cumulativeUnusualCounts.push(unusualSum);
+                }
+                
+                const registrationsByDateCtx = document.getElementById('registrationsByDateChart').getContext('2d');
+                new Chart(registrationsByDateCtx, {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [
+                            {
+                                label: 'Регистрации за день',
+                                data: counts,
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                borderColor: 'rgb(54, 162, 235)',
+                                borderWidth: 2,
+                                tension: 0.1,
+                                yAxisID: 'y'
+                            },
+                            {
+                                label: 'Регистрации с необычным ФИО',
+                                data: unusualCounts,
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                borderColor: 'rgb(255, 99, 132)',
+                                borderWidth: 2,
+                                tension: 0.1,
+                                yAxisID: 'y'
+                            },
+                            {
+                                label: 'Всего регистраций',
+                                data: cumulativeCounts,
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                borderColor: 'rgb(75, 192, 192)',
+                                borderWidth: 2,
+                                tension: 0.1,
+                                yAxisID: 'y1'
+                            },
+                            {
+                                label: 'Всего с необычным ФИО',
+                                data: cumulativeUnusualCounts,
+                                backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                                borderColor: 'rgb(255, 159, 64)',
+                                borderWidth: 2,
+                                tension: 0.1,
+                                yAxisID: 'y1'
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                position: 'left',
+                                title: {
+                                    display: true,
+                                    text: 'Регистрации за день'
+                                },
+                                ticks: {
+                                    precision: 0
+                                }
+                            },
+                            y1: {
+                                beginAtZero: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: 'Всего регистраций'
+                                },
+                                grid: {
+                                    drawOnChartArea: false
+                                },
+                                ticks: {
+                                    precision: 0
+                                }
+                            }
+                        },
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Динамика регистраций по дням'
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Информационная панель со статистикой
+            const statsInfoContainer = document.getElementById('stats-info-container');
+            const averageTeamSize = stats.average_team_size.toFixed(1);
+            
+            statsInfoContainer.innerHTML = `
+                <h2>Основные показатели</h2>
+                <div class="stats-info">
+                    <div class="stats-panel">
+                        <div class="stats-column">
+                            <p><strong>Всего пользователей:</strong> ${stats.total_users}</p>
+                            <p><strong>Активных пользователей:</strong> ${stats.active_users}</p>
+                            <p><strong>Процент активации:</strong> ${stats.total_users ? ((stats.active_users / stats.total_users) * 100).toFixed(1) : 0}%</p>
+                            <p><strong>Пользователей с необычным ФИО:</strong> ${stats.unusual_name_count || 0} (${stats.total_users ? ((stats.unusual_name_count / stats.total_users) * 100).toFixed(1) : 0}%)</p>
+                        </div>
+                        <div class="stats-column">
+                            <p><strong>Количество команд:</strong> ${stats.total_teams}</p>
+                            <p><strong>Средний размер команды:</strong> ${averageTeamSize}</p>
+                            <p><strong>Пользователей, ищущих команду:</strong> ${stats.users_looking_for_team}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+        } catch (error) {
+            console.error('Ошибка при отображении статистики:', error);
+            statsLoading.style.display = 'none';
+            statsError.style.display = 'block';
+        }
+    }
+</script>
+{% endmacro %} 

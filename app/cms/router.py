@@ -18,12 +18,16 @@ from app.config import DEBUG
 from app.dao.database import engine
 from app.cms import views
 from app.dependencies.auth_dep import get_access_token
+from app.dependencies.template_dep import get_templates
 from app.auth.dao import UsersDAO, SessionDAO
 from app.auth.models import User
 from app.logger import logger
 
 # Определяем возвращаемый тип для декораторов
 T = TypeVar('T')
+
+# Получаем шаблонизатор
+templates = get_templates()
 
 class AdminView(ModelView):
     """Базовый класс для представлений админки с проверкой роли организатора."""
@@ -56,68 +60,10 @@ class AdminDashboardView(AdminPage):
     async def dashboard(self, request: Request) -> HTMLResponse:
         """Отображает страницу панели управления."""
         user = request.scope.get("user")
-        content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Панель управления</title>
-            <style>
-                .dashboard-container {{
-                    padding: 20px;
-                    max-width: 1200px;
-                    margin: 0 auto;
-                }}
-                .card {{
-                    background: #fff;
-                    border-radius: 5px;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                    padding: 20px;
-                    margin-bottom: 20px;
-                }}
-                .card h2 {{
-                    margin-top: 0;
-                    color: #333;
-                }}
-                .btn {{
-                    display: inline-block;
-                    padding: 8px 16px;
-                    background: #4CAF50;
-                    color: white;
-                    border-radius: 4px;
-                    text-decoration: none;
-                    margin-top: 10px;
-                }}
-                .btn:hover {{
-                    background: #45a049;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="dashboard-container">
-                <div class="card">
-                    <h2>Добро пожаловать, {user.full_name if user else 'Администратор'}!</h2>
-                    <p>У вас есть доступ к управлению системой как <strong>организатор</strong>.</p>
-                </div>
-                
-                <div class="card">
-
-                    <h2>Быстрые действия</h2>
-                    <a href="/admin/database/" class="btn">Управление БД</a>
-                    <a href="/admin/riddle" class="btn">Создать загадку</a>
-                    <a href="/admin/statistics/" class="btn">Статистика команд</a>
-                    <br><br>
-                    <a href="/quest" class="btn" style="background-color: #808080;">Вернуться на квест</a>
-                </div>
-                
-                <div class="card">
-                    <h2>Статистика системы</h2>
-                    <p>Здесь будет отображаться статистика работы системы.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=content)
+        return templates.TemplateResponse(
+            "admin/dashboard.html",
+            {"request": request, "user": user}
+        )
 
     def register(self, admin: Admin) -> None:
         """Регистрирует маршрут для панели управления."""
@@ -136,199 +82,10 @@ class AdminRiddleView(AdminPage):
     
     async def get_riddle_page(self, request: Request) -> HTMLResponse:
         """Отображает страницу создания загадки."""
-        content = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Создание загадки</title>
-            <link rel="stylesheet" href="/admin/statics/css/sqladmin.css">
-            <style>
-                .container {
-                    max-width: 800px;
-                    margin: 20px auto;
-                    padding: 20px;
-                    background: #fff;
-                    border-radius: 5px;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                }
-                .form-group {
-                    margin-bottom: 15px;
-                }
-                label {
-                    display: block;
-                    margin-bottom: 5px;
-                    font-weight: bold;
-                }
-                textarea {
-                    width: 100%;
-                    height: 150px;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    resize: vertical;
-                }
-                button {
-                    padding: 10px 15px;
-                    background: #4CAF50;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                }
-                .preview {
-                    margin-top: 20px;
-                    border: 1px dashed #ccc;
-                    padding: 10px;
-                    text-align: center;
-                }
-                .preview img {
-                    max-width: 100%;
-                    height: auto;
-                }
-                #result-container {
-                    display: none;
-                    margin-top: 20px;
-                }
-                #download-btn {
-                    display: block;
-                    margin: 10px auto;
-                    background: #007bff;
-                }
-                .align-options {
-                    display: flex;
-                    gap: 10px;
-                    margin-bottom: 15px;
-                }
-                .align-option {
-                    flex: 1;
-                    text-align: center;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    cursor: pointer;
-                }
-                .align-option.selected {
-                    background-color: #e0f7fa;
-                    border-color: #4CAF50;
-                }
-                .align-option img {
-                    width: 20px;
-                    height: 20px;
-                    margin-bottom: 5px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <a href="/admin" style="display: inline-block; margin-bottom: 20px; padding: 8px 16px; background-color: #f0f0f0; border-radius: 4px; text-decoration: none; color: #333;">← Назад</a>
-                <h1>Создание загадки</h1>
-                <form id="riddle-form">
-                    <div class="form-group">
-                        <label for="riddle-text">Текст загадки:</label>
-                        <textarea id="riddle-text" name="text" placeholder="Введите текст загадки..." required></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Выравнивание текста:</label>
-                        <div class="align-options">
-                            <div class="align-option selected" data-align="left">
-                                <span>По левому краю</span>
-                            </div>
-                            <div class="align-option" data-align="center">
-                                <span>По центру</span>
-                            </div>
-                            <div class="align-option" data-align="right">
-                                <span>По правому краю</span>
-                            </div>
-                        </div>
-                        <input type="hidden" id="text-align" name="text_align" value="left">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="font-size">Размер шрифта:</label>
-                        <input type="number" id="font-size" name="font_size" value="36" min="12" max="72">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="text-color">Цвет текста:</label>
-                        <input type="color" id="text-color" name="text_color" value="#ffffff">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="vertical-position">Вертикальное положение:</label>
-                        <select id="vertical-position" name="vertical_position">
-                            <option value="top">Сверху</option>
-                            <option value="middle" selected>Посередине</option>
-                            <option value="bottom">Снизу</option>
-                        </select>
-                    </div>
-                    
-                    <button type="submit">Создать загадку</button>
-                </form>
-                
-                <div id="result-container">
-                    <h2>Результат:</h2>
-                    <div class="preview">
-                        <img id="result-image" src="" alt="Загадка">
-                    </div>
-                    <a id="download-btn" href="#" class="button" download="riddle.jpg">Скачать изображение</a>
-                </div>
-            </div>
-            
-            <script>
-                // Обработка выбора выравнивания
-                document.querySelectorAll('.align-option').forEach(option => {
-                    option.addEventListener('click', () => {
-                        // Снимаем выделение со всех опций
-                        document.querySelectorAll('.align-option').forEach(opt => {
-                            opt.classList.remove('selected');
-                        });
-                        
-                        // Выделяем выбранную опцию
-                        option.classList.add('selected');
-                        
-                        // Обновляем скрытое поле
-                        document.getElementById('text-align').value = option.dataset.align;
-                    });
-                });
-                
-                // Обработка отправки формы
-                document.getElementById('riddle-form').addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    
-                    const formData = new FormData();
-                    formData.append('text', document.getElementById('riddle-text').value);
-                    formData.append('font_size', document.getElementById('font-size').value);
-                    formData.append('text_color', document.getElementById('text-color').value);
-                    formData.append('text_align', document.getElementById('text-align').value);
-                    formData.append('vertical_position', document.getElementById('vertical-position').value);
-                    
-                    try {
-                        const response = await fetch('/admin/riddle/generate', {
-                            method: 'POST',
-                            body: formData
-                        });
-                        
-                        if (response.ok) {
-                            const blob = await response.blob();
-                            const imageUrl = URL.createObjectURL(blob);
-                            
-                            document.getElementById('result-image').src = imageUrl;
-                            document.getElementById('download-btn').href = imageUrl;
-                            document.getElementById('result-container').style.display = 'block';
-                        } else {
-                            alert('Ошибка при создании загадки');
-                        }
-                    } catch (error) {
-                        console.error('Ошибка:', error);
-                        alert('Произошла ошибка при отправке запроса');
-                    }
-                });
-            </script>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=content)
+        return templates.TemplateResponse(
+            "admin/riddle.html",
+            {"request": request}
+        )
     
     async def generate_riddle(self, 
                              request: Request, 
@@ -600,410 +357,6 @@ def require_organizer_role(func: Callable[..., T]) -> Callable[..., T]:
     return wrapper
 
 
-class AdminStatsView(AdminPage):
-    """Представление для отображения статистик системы."""
-    name = "Статистика"
-    icon = "fa-solid fa-chart-line"
-    
-    async def get_stats_page(self, request: Request) -> HTMLResponse:
-        """Отображает страницу статистики."""
-        content = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Статистика системы</title>
-            <link rel="stylesheet" href="/admin/statics/css/sqladmin.css">
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-            <style>
-                .container {
-                    max-width: 1200px;
-                    margin: 20px auto;
-                    padding: 20px;
-                    background: #fff;
-                    border-radius: 5px;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                }
-                .chart-container {
-                    width: 100%;
-                    height: 400px;
-                    margin-top: 20px;
-                }
-                .nav-tabs {
-                    display: flex;
-                    border-bottom: 1px solid #dee2e6;
-                    margin-bottom: 20px;
-                }
-                .nav-link {
-                    padding: 10px 15px;
-                    border: 1px solid transparent;
-                    border-top-left-radius: 0.25rem;
-                    border-top-right-radius: 0.25rem;
-                    margin-right: 5px;
-                    cursor: pointer;
-                }
-                .nav-link.active {
-                    color: #495057;
-                    background-color: #fff;
-                    border-color: #dee2e6 #dee2e6 #fff;
-                }
-                .tab-content {
-                    padding: 20px 0;
-                }
-                .tab-pane {
-                    display: none;
-                }
-                .tab-pane.active {
-                    display: block;
-                }
-                .btn {
-                    display: inline-block;
-                    padding: 8px 16px;
-                    background: #4CAF50;
-                    color: white;
-                    border-radius: 4px;
-                    text-decoration: none;
-                    margin-top: 10px;
-                }
-                .btn:hover {
-                    background: #45a049;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <a href="/admin" style="display: inline-block; margin-bottom: 20px; padding: 8px 16px; background-color: #f0f0f0; border-radius: 4px; text-decoration: none; color: #333;">← Назад</a>
-                <h1>Статистика системы</h1>
-                
-                <div class="nav-tabs">
-                    <div class="nav-link active" data-tab="registrations">Регистрации</div>
-                    <div class="nav-link" data-tab="teams">Команды</div>
-                </div>
-                
-                <div class="tab-content">
-                    <div class="tab-pane active" id="registrations">
-                        <h2>Статистика регистраций пользователей</h2>
-                        <div class="chart-container">
-                            <canvas id="registrationsChart"></canvas>
-                        </div>
-                    </div>
-                    
-                    <div class="tab-pane" id="teams">
-                        <h2>Статистика команд</h2>
-                        <div class="chart-container">
-                            <canvas id="teamsChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <script>
-                // Получение данных о регистрациях
-                async function fetchRegistrationsData() {
-                    try {
-                        const response = await fetch('/api/auth/stats/registrations');
-                        if (!response.ok) {
-                            throw new Error('Ошибка при получении данных');
-                        }
-                        const data = await response.json();
-                        if (!data.ok) {
-                            throw new Error(data.message || 'Ошибка получения данных');
-                        }
-                        return data.stats;
-                    } catch (error) {
-                        console.error('Ошибка:', error);
-                        return null;
-                    }
-                }
-                
-                // Отображение графика регистраций
-                async function renderRegistrationsChart() {
-                    const stats = await fetchRegistrationsData();
-                    if (!stats) {
-                        document.getElementById('registrationsChart').innerHTML = 
-                            '<div style="text-align: center; padding: 20px;">Не удалось загрузить данные статистики</div>';
-                        return;
-                    }
-                    
-                    // Создаем данные для диаграммы распределения размеров команд
-                    const teamSizes = Object.keys(stats.team_distribution).map(size => parseInt(size));
-                    const teamCounts = teamSizes.map(size => stats.team_distribution[size]);
-                    
-                    const ctx = document.getElementById('registrationsChart').getContext('2d');
-                    
-                    // Создаем диаграмму
-                    new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: ['Всего пользователей', 'Активных пользователей', 'Команд', 'Ищущих команду'],
-                            datasets: [{
-                                label: 'Количество',
-                                data: [stats.total_users, stats.active_users, stats.total_teams, stats.users_looking_for_team],
-                                backgroundColor: [
-                                    'rgba(54, 162, 235, 0.6)',
-                                    'rgba(75, 192, 192, 0.6)',
-                                    'rgba(255, 159, 64, 0.6)',
-                                    'rgba(153, 102, 255, 0.6)'
-                                ],
-                                borderColor: [
-                                    'rgb(54, 162, 235)',
-                                    'rgb(75, 192, 192)',
-                                    'rgb(255, 159, 64)',
-                                    'rgb(153, 102, 255)'
-                                ],
-                                borderWidth: 1
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                y: {
-                                    beginAtZero: true,
-                                    ticks: {
-                                        precision: 0
-                                    }
-                                }
-                            },
-                            plugins: {
-                                title: {
-                                    display: true,
-                                    text: 'Общая статистика регистраций'
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        label: function(context) {
-                                            return context.raw;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                    
-                    // Добавляем дополнительную диаграмму для распределения размеров команд
-                    const teamDistributionContainer = document.createElement('div');
-                    teamDistributionContainer.className = 'chart-container';
-                    teamDistributionContainer.style.marginTop = '30px';
-                    
-                    const teamDistributionCanvas = document.createElement('canvas');
-                    teamDistributionCanvas.id = 'teamDistributionChart';
-                    teamDistributionContainer.appendChild(teamDistributionCanvas);
-                    
-                    document.getElementById('registrations').appendChild(teamDistributionContainer);
-                    
-                    const teamCtx = document.getElementById('teamDistributionChart').getContext('2d');
-                    new Chart(teamCtx, {
-                        type: 'bar',
-                        data: {
-                            labels: teamSizes.map(size => `${size} участников`),
-                            datasets: [{
-                                label: 'Количество команд',
-                                data: teamCounts,
-                                backgroundColor: 'rgba(255, 159, 64, 0.6)',
-                                borderColor: 'rgb(255, 159, 64)',
-                                borderWidth: 1
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                y: {
-                                    beginAtZero: true,
-                                    ticks: {
-                                        precision: 0
-                                    }
-                                }
-                            },
-                            plugins: {
-                                title: {
-                                    display: true,
-                                    text: 'Распределение команд по размеру'
-                                }
-                            }
-                        }
-                    });
-                    
-                    // Добавляем график регистраций по дням
-                    if (stats.registrations_by_date && stats.registrations_by_date.length > 0) {
-                        const registrationsByDateContainer = document.createElement('div');
-                        registrationsByDateContainer.className = 'chart-container';
-                        registrationsByDateContainer.style.marginTop = '30px';
-                        
-                        const registrationsByDateCanvas = document.createElement('canvas');
-                        registrationsByDateCanvas.id = 'registrationsByDateChart';
-                        registrationsByDateContainer.appendChild(registrationsByDateCanvas);
-                        
-                        document.getElementById('registrations').appendChild(registrationsByDateContainer);
-                        
-                        // Подготавливаем данные для графика
-                        const dates = stats.registrations_by_date.map(item => item.date);
-                        const counts = stats.registrations_by_date.map(item => item.count);
-                        
-                        // Создаем кумулятивный массив для общего количества регистраций
-                        const cumulativeCounts = [];
-                        let sum = 0;
-                        for (const count of counts) {
-                            sum += count;
-                            cumulativeCounts.push(sum);
-                        }
-                        
-                        const registrationsByDateCtx = document.getElementById('registrationsByDateChart').getContext('2d');
-                        new Chart(registrationsByDateCtx, {
-                            type: 'line',
-                            data: {
-                                labels: dates,
-                                datasets: [
-                                    {
-                                        label: 'Регистрации за день',
-                                        data: counts,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                        borderColor: 'rgb(54, 162, 235)',
-                                        borderWidth: 2,
-                                        tension: 0.1,
-                                        yAxisID: 'y'
-                                    },
-                                    {
-                                        label: 'Всего регистраций',
-                                        data: cumulativeCounts,
-                                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                                        borderColor: 'rgb(75, 192, 192)',
-                                        borderWidth: 2,
-                                        tension: 0.1,
-                                        yAxisID: 'y1'
-                                    }
-                                ]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        position: 'left',
-                                        title: {
-                                            display: true,
-                                            text: 'Регистрации за день'
-                                        },
-                                        ticks: {
-                                            precision: 0
-                                        }
-                                    },
-                                    y1: {
-                                        beginAtZero: true,
-                                        position: 'right',
-                                        title: {
-                                            display: true,
-                                            text: 'Всего регистраций'
-                                        },
-                                        grid: {
-                                            drawOnChartArea: false
-                                        },
-                                        ticks: {
-                                            precision: 0
-                                        }
-                                    }
-                                },
-                                plugins: {
-                                    title: {
-                                        display: true,
-                                        text: 'Динамика регистраций по дням'
-                                    }
-                                }
-                            }
-                        });
-                    }
-                    
-                    // Добавляем информационную панель со статистикой
-                    const statsContainer = document.createElement('div');
-                    statsContainer.className = 'stats-info';
-                    statsContainer.style.marginTop = '30px';
-                    statsContainer.style.padding = '15px';
-                    statsContainer.style.backgroundColor = '#f8f9fa';
-                    statsContainer.style.borderRadius = '5px';
-                    
-                    const averageTeamSize = stats.average_team_size.toFixed(1);
-                    
-                    statsContainer.innerHTML = `
-                        <h3>Основные показатели</h3>
-                        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
-                            <div style="flex: 1; min-width: 200px;">
-                                <p><strong>Всего пользователей:</strong> ${stats.total_users}</p>
-                                <p><strong>Активных пользователей:</strong> ${stats.active_users}</p>
-                                <p><strong>Процент активации:</strong> ${stats.total_users ? ((stats.active_users / stats.total_users) * 100).toFixed(1) : 0}%</p>
-                            </div>
-                            <div style="flex: 1; min-width: 200px;">
-                                <p><strong>Количество команд:</strong> ${stats.total_teams}</p>
-                                <p><strong>Средний размер команды:</strong> ${averageTeamSize}</p>
-                                <p><strong>Пользователей, ищущих команду:</strong> ${stats.users_looking_for_team}</p>
-                            </div>
-                        </div>
-                    `;
-                    
-                    document.getElementById('registrations').appendChild(statsContainer);
-                }
-                
-                // Обработка переключения вкладок
-                document.querySelectorAll('.nav-link').forEach(tab => {
-                    tab.addEventListener('click', () => {
-                        // Убираем активный класс у всех вкладок и контента
-                        document.querySelectorAll('.nav-link').forEach(t => t.classList.remove('active'));
-                        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-                        
-                        // Активируем выбранную вкладку и соответствующий контент
-                        tab.classList.add('active');
-                        document.getElementById(tab.dataset.tab).classList.add('active');
-                    });
-                });
-                
-                // Загрузка данных при загрузке страницы
-                document.addEventListener('DOMContentLoaded', () => {
-                    renderRegistrationsChart();
-                });
-            </script>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=content)
-    
-    async def get_registrations_data(self, request: Request) -> JSONResponse:
-        """Возвращает данные о регистрациях пользователей по дням."""
-        # Получаем сессию для работы с БД
-        async with AsyncSession(engine) as session:
-            # SQL-запрос для получения количества регистраций по датам
-            query = select(
-                cast(User.created_at, Date).label('date'),
-                func.count(User.id).label('count')
-            ).group_by(
-                cast(User.created_at, Date)
-            ).order_by(
-                cast(User.created_at, Date)
-            )
-            
-            # Выполняем запрос
-            result = await session.execute(query)
-            registrations_by_date = result.all()
-            
-            # Преобразуем результат запроса в нужный формат
-            dates = []
-            counts = []
-            
-            for row in registrations_by_date:
-                dates.append(row.date.strftime('%d.%m.%Y'))
-                counts.append(row.count)
-                
-            return JSONResponse(content={
-                "dates": dates,
-                "counts": counts
-            })
-    
-    def register(self, admin: Admin) -> None:
-        """Регистрирует маршруты для статистики."""
-        admin.app.get("/admin/statistics")(require_organizer_role(self.get_stats_page))
-        admin.app.get("/admin/statistics/")(require_organizer_role(self.get_stats_page))
-        admin.app.get("/api/auth/stats/registrations")(require_organizer_role(self.get_registrations_data))
-
-
 def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     """Инициализирует админ-панель с проверкой прав доступа."""
     
@@ -1023,6 +376,35 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
         """Перенаправляет на страницу управления базой данных."""
         return RedirectResponse(url=f"{base_url}/database/", status_code=status.HTTP_302_FOUND)
     
+    # Добавляем API-метод для получения статистики регистраций
+    @admin.app.get("/api/auth/stats/registrations")
+    async def get_registrations_data(request: Request):
+        """Возвращает данные о регистрациях пользователей."""
+        # Проверяем роль пользователя
+        user = request.scope.get("user")
+        if not user or user.role.name != "organizer":
+            return JSONResponse(
+                content={"ok": False, "message": "Недостаточно прав для просмотра статистики"},
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            # Перенаправляем запрос на обработчик в auth router
+            from app.auth.router import get_registration_stats
+            from app.dependencies.auth_dep import get_session_with_commit
+            
+            # Используем зависимость для получения сессии
+            session = await get_session_with_commit(request)
+            
+            # Вызываем обработчик из auth router
+            return await get_registration_stats(session=session, user=user)
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики: {e}", exc_info=True)
+            return JSONResponse(
+                content={"ok": False, "message": "Внутренняя ошибка сервера"},
+                status_code=500
+            )
+        
     # Применяем middleware для аутентификации
     admin.app.add_middleware(AdminAuthMiddleware)
     
@@ -1033,10 +415,6 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     # Добавляем страницу создания загадок
     riddle_view = AdminRiddleView()
     riddle_view.register(admin)
-    
-    # Добавляем страницу статистики
-    stats_view = AdminStatsView()
-    stats_view.register(admin)
     
     # Автоматически регистрируем все классы ModelView из модуля views
     for name, view in vars(views).items():

@@ -1,0 +1,169 @@
+<style>
+    @font-face {
+        font-family: 'Involve';
+        src: url('/static/fonts/Involve-Medium.ttf') format('truetype');
+        font-weight: 500;
+        font-style: normal;
+    }
+
+    html, body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    body {
+        font-family: 'Involve', Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        background-image: url('/static/img/quest_bg.png');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .container {
+        width: 90%;
+        max-width: 1200px;
+        margin: 20px auto;
+        padding: 20px;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 15px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    h1 {
+        word-break: break-word;
+    }
+
+    .card {
+        background: #fff;
+        border-radius: 5px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+        box-sizing: border-box;
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    .card h2 {
+        margin-top: 0;
+        color: #333;
+        word-break: break-word;
+    }
+
+    .btn {
+        display: inline-block;
+        padding: 8px 16px;
+        background: #4CAF50;
+        color: white;
+        border-radius: 4px;
+        text-decoration: none;
+        margin-top: 10px;
+        transition: transform 0.2s ease;
+    }
+
+    .btn:hover {
+        transform: scale(1.05);
+    }
+
+    .back-link {
+        display: inline-block; 
+        margin-bottom: 20px; 
+        padding: 8px 16px; 
+        background-color: #f0f0f0; 
+        border-radius: 4px; 
+        text-decoration: none; 
+        color: #333;
+        transition: transform 0.2s ease;
+    }
+
+    .back-link:hover {
+        transform: scale(1.05);
+    }
+
+    .logo-container {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        padding: 20px 0;
+        box-sizing: border-box;
+        text-decoration: none;
+    }
+
+    .logo {
+        max-width: 200px;
+        width: 100%;
+        height: auto;
+        transition: transform 0.3s ease;
+    }
+
+    .logo:hover {
+        transform: scale(1.1);
+    }
+
+    /* Адаптивность для мобильных устройств */
+    @media (max-width: 768px) {
+        .container {
+            width: 95%;
+            padding: 15px;
+            margin: 15px auto;
+        }
+        
+        .logo-container {
+            padding: 15px 0;
+        }
+        
+        .logo {
+            max-width: 150px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        input[type="text"], 
+        input[type="number"], 
+        input[type="color"], 
+        select, 
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .container {
+            width: 98%;
+            padding: 10px;
+            margin: 10px auto;
+        }
+        
+        .card {
+            padding: 15px;
+        }
+        
+        .logo-container {
+            padding: 10px 0;
+        }
+        
+        .logo {
+            max-width: 120px;
+        }
+        
+        .card .btn {
+            display: block;
+            width: 100%;
+            margin: 8px 0;
+            text-align: center;
+            box-sizing: border-box;
+        }
+    }
+</style> 

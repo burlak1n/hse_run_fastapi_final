@@ -1,6 +1,7 @@
 from fastapi import Request
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, FileSystemLoader
+from app.dependencies.template_dep import get_templates
+from pathlib import Path
 import os
 import urllib.parse
 from app.config import BASE_URL
@@ -11,47 +12,35 @@ base_domain = parsed_url.netloc
 base_scheme = parsed_url.scheme
 base_domain_csp = f"{base_scheme}://{base_domain}"
 
-# Создаем окружение шаблонизатора
-templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "html")
-env = Environment(loader=FileSystemLoader(templates_dir))
+STATIC_HTML_DIR = Path("app/static/html")
 
-def render_template(request: Request, template_name: str, context: dict = None) -> HTMLResponse:
+def render_template(template_name: str, request: Request = None, **context):
     """
-    Рендерит HTML шаблон, добавляя заголовки безопасности.
+    Рендерит HTML шаблон.
+    
+    Два режима работы:
+    1. Если шаблон имеет расширение .html и находится в директории static/html, возвращает его напрямую
+    2. Иначе, использует Jinja2 для рендеринга шаблона из директории templates
     
     Args:
-        request: Объект запроса FastAPI
-        template_name: Имя шаблона
-        context: Контекст для шаблона
-        
+        template_name: Имя шаблона (с расширением)
+        request: Объект запроса FastAPI (для Jinja2)
+        **context: Дополнительный контекст для шаблона
+    
     Returns:
         HTMLResponse с отрендеренным шаблоном
     """
-    if context is None:
-        context = {}
-    
-    # Добавляем request в контекст для доступа к запросу внутри шаблона
-    context["request"] = request
-    
-    # Получаем шаблон и рендерим его
-    template = env.get_template(template_name)
-    content = template.render(**context)
-    
-    # Создаем ответ с заголовками безопасности
-    response = HTMLResponse(content=content)
-    
-    # Добавляем заголовки безопасности
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Content-Security-Policy"] = (
-        f"default-src 'self' {base_domain_csp}; "
-        f"script-src 'self' 'unsafe-inline' {base_domain_csp}; "
-        f"style-src 'self' 'unsafe-inline' {base_domain_csp}; "
-        f"img-src 'self' data: {base_domain_csp}; "
-        f"connect-src 'self' {base_domain_csp}; "
-        "frame-ancestors 'self'; "
-        "form-action 'self'"
-    )
-    
-    return response
+    if template_name.endswith('.html') and (STATIC_HTML_DIR / template_name).exists():
+        # Режим статического HTML файла
+        file_path = STATIC_HTML_DIR / template_name
+        if not file_path.exists():
+            raise FileNotFoundError(f"Шаблон {template_name} не найден")
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    else:
+        # Режим Jinja2
+        templates = get_templates()
+        return templates.TemplateResponse(template_name, {'request': request, **context})
