@@ -288,6 +288,13 @@ async def verify_qr(
         logger.error(f"Ошибка при проверке команды сканирующего пользователя: {str(e)}")
     
     # Обработка в зависимости от роли сканирующего
+    if not scanner_user or not scanner_user.role or scanner_user.role.name not in ["insider", "organizer", "guest"]:
+        logger.warning("Пользователь без роли пытается проверить QR-код")
+        return {
+            "ok": False,
+            "message": "Недостаточно прав для проверки QR-кода"
+        }
+        
     if scanner_user.role.name in ["insider", "organizer"]:
         # Инсайдер или организатор - возвращаем полную информацию
         
@@ -351,8 +358,8 @@ async def verify_qr(
             "token": request.token
         }
     
-    # Для других ролей возвращаем ошибку
-    logger.warning(f"Роль {scanner_user.role.name} не позволяет выполнить это действие")
+    # Это условие не будет достигнуто из-за изменённого if-else, но оставим на всякий случай
+    logger.warning(f"Роль пользователя не позволяет выполнить это действие")
     return {
         "ok": False,
         "message": "Ваша роль не позволяет выполнить это действие"

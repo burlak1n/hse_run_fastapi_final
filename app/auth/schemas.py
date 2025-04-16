@@ -7,7 +7,7 @@ class UserTelegramID(BaseModel):
     telegram_id: int = Field(description="Идентификатор пользователя в Telegram")
 
 class TelegramModel(UserTelegramID):
-    telegram_username: str = Field(description="Имя пользователя в Telegram")
+    telegram_username: Optional[str] = Field(default=None, description="Имя пользователя в Telegram")
 
 class UserFullname(BaseModel):
     full_name: str = Field(description="ФИО пользователя")
