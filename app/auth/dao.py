@@ -169,6 +169,10 @@ class UsersDAO(BaseDAO):
         logger.info("Получение статистики регистраций по дням")
         try:
             from sqlalchemy import func
+            from datetime import datetime
+            
+            # Устанавливаем минимальную дату для учета пользователей - 7 апреля
+            cutoff_date = datetime(2025, 4, 7, 0, 0, 0)
             
             # Используем функцию date SQLAlchemy для группировки по дате
             query = (
@@ -176,6 +180,7 @@ class UsersDAO(BaseDAO):
                     func.date(self.model.created_at).label('date'),
                     func.count(self.model.id).label('count')
                 )
+                .where(self.model.created_at >= cutoff_date)
                 .group_by(func.date(self.model.created_at))
                 .order_by(func.date(self.model.created_at))
             )
@@ -224,8 +229,9 @@ class UsersDAO(BaseDAO):
         """
         logger.info("Получение статистики пользователей по ролям")
         try:
-            from sqlalchemy import func
+            from sqlalchemy import func, and_
             from app.auth.models import Role
+            
             
             query = (
                 select(
@@ -260,14 +266,21 @@ class UsersDAO(BaseDAO):
         """
         logger.info("Подсчет пользователей с необычным ФИО")
         try:
-            from sqlalchemy import func, text
+            from sqlalchemy import func, text, and_
+            from datetime import datetime
+            
+            # Устанавливаем минимальную дату для учета пользователей - 7 апреля
+            cutoff_date = datetime(2025, 4, 7, 0, 0, 0)
             
             # Для SQLite используем функцию length и подсчет пробелов для определения числа слов
-            # Если число пробелов не равно 2, значит слов не 3
+            # Если число пробелов меньше 2, значит слов меньше 3
             query = (
                 select(func.count(self.model.id))
                 .where(
-                    text("(length(trim(full_name)) - length(replace(trim(full_name), ' ', ''))) != 2")
+                    and_(
+                        text("(length(trim(full_name)) - length(replace(trim(full_name), ' ', ''))) < 2"),
+                        self.model.created_at >= cutoff_date
+                    )
                 )
             )
             
@@ -289,7 +302,11 @@ class UsersDAO(BaseDAO):
         """
         logger.info("Получение статистики регистраций пользователей с необычным ФИО по дням")
         try:
-            from sqlalchemy import func, text
+            from sqlalchemy import func, text, and_
+            from datetime import datetime
+            
+            # Устанавливаем минимальную дату для учета пользователей - 7 апреля
+            cutoff_date = datetime(2025, 4, 7, 0, 0, 0)
             
             query = (
                 select(
@@ -297,7 +314,10 @@ class UsersDAO(BaseDAO):
                     func.count(self.model.id).label('count')
                 )
                 .where(
-                    text("(length(trim(full_name)) - length(replace(trim(full_name), ' ', ''))) != 2")
+                    and_(
+                        text("(length(trim(full_name)) - length(replace(trim(full_name), ' ', ''))) < 2"),
+                        self.model.created_at >= cutoff_date
+                    )
                 )
                 .group_by(func.date(self.model.created_at))
                 .order_by(func.date(self.model.created_at))

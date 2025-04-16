@@ -103,6 +103,12 @@ class QuestionAdmin(ModelView, model=Question):
         'hint_path': FileField
     }
 
+    column_sortable_list = [
+        Question.id,
+        Question.title,
+        Question.block,
+    ]
+
     def format_image_url(model, attribute) -> Markup:
         image_path = getattr(model, attribute)
         if image_path:
@@ -159,6 +165,16 @@ class QuestionAdmin(ModelView, model=Question):
         "text_answered": format_truncated_text,
         "answers": format_answer_text
     }
+
+    def sort_query(self, stmt: Select, request: Request) -> Select:
+        sort_by = request.query_params.get("sortBy")
+        sort_order = request.query_params.get("sort")
+        if sort_by == "block":
+            if sort_order == "desc":
+                stmt = stmt.join(Block).order_by(Block.title.desc())
+            else:
+                stmt = stmt.join(Block).order_by(Block.title.asc())
+        return super().sort_query(stmt, request)
 
     @staticmethod
     def generate_unique_filename(original_filename: str) -> str:

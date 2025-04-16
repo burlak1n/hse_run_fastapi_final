@@ -4,29 +4,31 @@
     <div id="stats-error" style="display: none; color: red;">Не удалось загрузить статистику</div>
     <div id="stats-content" style="display: none;">
         <!-- Основные метрики -->
-        <div class="card" style="display: inline-block; width: 30%; margin-right: 2%;">
-            <div class="chart-container">
-                <canvas id="registrationsChart"></canvas>
+        <div class="stats-cards">
+            <div class="stats-card">
+                <div class="chart-container">
+                    <canvas id="registrationsChart"></canvas>
+                </div>
             </div>
-        </div>
-        
-        <!-- Статистика по ролям -->
-        <div class="card" style="display: inline-block; width: 30%; margin-right: 2%;">
-            <div class="chart-container">
-                <canvas id="rolesDistributionChart"></canvas>
+            
+            <!-- Статистика по ролям -->
+            <div class="stats-card">
+                <div class="chart-container">
+                    <canvas id="rolesDistributionChart"></canvas>
+                </div>
             </div>
-        </div>
-        
-        <!-- Статистика по размерам команд -->
-        <div class="card" style="display: inline-block; width: 30%;">
-            <div class="chart-container">
-                <canvas id="teamDistributionChart"></canvas>
+            
+            <!-- Статистика по размерам команд -->
+            <div class="stats-card">
+                <div class="chart-container">
+                    <canvas id="teamDistributionChart"></canvas>
+                </div>
             </div>
         </div>
         
         <!-- Динамика регистраций -->
-        <div class="card">
-            <div class="chart-container">
+        <div class="card registration-dynamics-card">
+            <div class="chart-container registration-chart-container">
                 <canvas id="registrationsByDateChart"></canvas>
             </div>
         </div>
@@ -35,6 +37,53 @@
         <div class="card" id="stats-info-container"></div>
     </div>
 </div>
+
+<style>
+    .stats-cards {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .stats-card {
+        flex: 1;
+        min-width: 300px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        padding: 15px;
+    }
+    
+    .chart-container {
+        width: 100%;
+        height: 250px;
+    }
+    
+    .registration-dynamics-card {
+        margin-bottom: 15px;
+    }
+    
+    .registration-chart-container {
+        height: 350px;
+    }
+    
+    @media (max-width: 768px) {
+        .chart-container {
+            height: 220px;
+        }
+        
+        .registration-chart-container {
+            height: 280px;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        .registration-chart-container {
+            height: 250px;
+        }
+    }
+</style>
 {% endmacro %}
 
 {% macro statistics_scripts() %}
@@ -320,36 +369,93 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         scales: {
+                            x: {
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    font: {
+                                        size: function() {
+                                            return window.innerWidth < 600 ? 8 : 10;
+                                        }()
+                                    }
+                                }
+                            },
                             y: {
                                 beginAtZero: true,
                                 position: 'left',
                                 title: {
-                                    display: true,
+                                    display: function() {
+                                        return window.innerWidth > 480;
+                                    }(),
                                     text: 'Регистрации за день'
                                 },
                                 ticks: {
-                                    precision: 0
+                                    precision: 0,
+                                    font: {
+                                        size: function() {
+                                            return window.innerWidth < 600 ? 8 : 10;
+                                        }()
+                                    }
                                 }
                             },
                             y1: {
                                 beginAtZero: true,
                                 position: 'right',
                                 title: {
-                                    display: true,
+                                    display: function() {
+                                        return window.innerWidth > 480;
+                                    }(),
                                     text: 'Всего регистраций'
                                 },
                                 grid: {
                                     drawOnChartArea: false
                                 },
                                 ticks: {
-                                    precision: 0
+                                    precision: 0,
+                                    font: {
+                                        size: function() {
+                                            return window.innerWidth < 600 ? 8 : 10;
+                                        }()
+                                    }
                                 }
                             }
                         },
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'Динамика регистраций по дням'
+                                text: 'Динамика регистраций по дням',
+                                font: {
+                                    size: function() {
+                                        return window.innerWidth < 600 ? 12 : 14;
+                                    }()
+                                }
+                            },
+                            legend: {
+                                position: function() {
+                                    return window.innerWidth < 768 ? 'bottom' : 'top';
+                                }(),
+                                labels: {
+                                    boxWidth: function() {
+                                        return window.innerWidth < 600 ? 10 : 15;
+                                    }(),
+                                    font: {
+                                        size: function() {
+                                            return window.innerWidth < 600 ? 8 : 10;
+                                        }()
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                titleFont: {
+                                    size: function() {
+                                        return window.innerWidth < 600 ? 10 : 12;
+                                    }()
+                                },
+                                bodyFont: {
+                                    size: function() {
+                                        return window.innerWidth < 600 ? 9 : 11;
+                                    }()
+                                }
                             }
                         }
                     }
@@ -366,6 +472,7 @@
                     <div class="stats-panel">
                         <div class="stats-column">
                             <p><strong>Всего пользователей:</strong> ${stats.total_users}</p>
+                            <p><strong>Всего регистраций:</strong> ${stats.registrations_by_date.reduce((sum, item) => sum + item.count, 0)}</p>
                             <p><strong>Активных пользователей:</strong> ${stats.active_users}</p>
                             <p><strong>Процент активации:</strong> ${stats.total_users ? ((stats.active_users / stats.total_users) * 100).toFixed(1) : 0}%</p>
                             <p><strong>Пользователей с необычным ФИО:</strong> ${stats.unusual_name_count || 0} (${stats.total_users ? ((stats.unusual_name_count / stats.total_users) * 100).toFixed(1) : 0}%)</p>
