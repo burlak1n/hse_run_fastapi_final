@@ -36,6 +36,17 @@ class UserAdmin(ModelView, model=User):
         }
     }
     column_searchable_list = ["full_name"]
+    column_sortable_list = [User.id, User.full_name, "role", User.created_at, User.updated_at]
+    
+    def sort_query(self, stmt: Select, request: Request) -> Select:
+        sort_by = request.query_params.get("sortBy")
+        sort_order = request.query_params.get("sort")
+        if sort_by == "role":
+            if sort_order == "desc":
+                stmt = stmt.join(Role).order_by(Role.name.desc())
+            else:
+                stmt = stmt.join(Role).order_by(Role.name.asc())
+        return super().sort_query(stmt, request)
 
 class RoleAdmin(ModelView, model=Role):
     column_list = [Role.id, Role.name]
