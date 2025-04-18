@@ -1,6 +1,7 @@
 from sqladmin import ModelView
 from sqlalchemy import Select
-from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand, Session, CommandsUser
+from sqlalchemy.sql import func
+from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand, Session, CommandsUser, InsiderInfo
 from app.quest.models import Answer, Block, Question, AttemptType, Attempt, QuestionInsider
 from sqladmin.forms import FileField
 from fastapi import UploadFile, Request
@@ -33,6 +34,7 @@ class UserAdmin(ModelView, model=User):
             'order_by': 'name',
         }
     }
+    column_searchable_list = [func.lower(User.full_name)]
 
 class RoleAdmin(ModelView, model=Role):
     column_list = [Role.id, Role.name]
@@ -451,4 +453,15 @@ class CommandsUserAdmin(ModelView, model=CommandsUser):
         CommandsUser.role
     ]
     
-    
+class InsiderInfoAdmin(ModelView, model=InsiderInfo):
+    column_list = [
+        InsiderInfo.id,
+        InsiderInfo.user,
+        InsiderInfo.student_organization,
+        InsiderInfo.geo_link
+    ]
+    form_columns = [
+        InsiderInfo.user,
+        InsiderInfo.student_organization,
+        InsiderInfo.geo_link
+    ]

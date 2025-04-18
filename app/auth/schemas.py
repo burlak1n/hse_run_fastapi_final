@@ -48,6 +48,32 @@ class CommandInfo(BaseModel):
     language_id: int
     participants: list[ParticipantInfo]
 
+class InsiderInfoBase(BaseModel):
+    student_organization: Optional[str] = Field(default=None, description="Студенческая организация инсайдера")
+    geo_link: Optional[str] = Field(default=None, description="Ссылка на геолокацию 2ГИС")
+
+class InsiderInfoCreate(InsiderInfoBase):
+    user_id: int = Field(description="ID пользователя-инсайдера")
+
+class InsiderInfoUpdate(InsiderInfoBase):
+    pass
+
+class InsiderInfoResponse(InsiderInfoBase):
+    id: int
+    user_id: int
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class CompleteRegistrationRequest(BaseModel):
+    full_name: str
+    student_organization: Optional[str] = None
+    geo_link: Optional[str] = None
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str
+    student_organization: Optional[str] = None
+    geo_link: Optional[str] = None
+
 class SUserInfo(UserBase):
     id: int = Field(description="Идентификатор пользователя")
     role: Optional[RoleModel] = Field(
@@ -61,6 +87,10 @@ class SUserInfo(UserBase):
     is_looking_for_friends: bool = Field(
         default=False,
         description="Флаг поиска команды"
+    )
+    insider_info: Optional[InsiderInfoBase] = Field(
+        default=None,
+        description="Информация инсайдера (если пользователь является инсайдером)"
     )
 
     model_config = ConfigDict(from_attributes=True)
@@ -97,7 +127,8 @@ class TelegramAuthData(BaseModel):
     photo_url: Optional[str] = None
     auth_date: int
     hash: str
-
+    registration_code: Optional[str] = None
+    
 class SessionGet(BaseModel):
     token: str
 
@@ -114,10 +145,6 @@ class SessionCreate(BaseModel):
     token: str
     expires_at: datetime
     is_active: bool
-
-class CompleteRegistrationRequest(BaseModel):
-    full_name: str
-    
 
 class CommandsUserBase(BaseModel):
     command_id: int = Field(description="ID команды")

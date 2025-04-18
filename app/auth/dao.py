@@ -7,7 +7,7 @@ from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, Sessi
 from app.auth.utils import create_session
 from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME
 from app.dao.base import BaseDAO
-from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command
+from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command, InsiderInfo
 from app.logger import logger
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -681,3 +681,57 @@ class SessionDAO(BaseDAO):
         except Exception as e:
             logger.error(f"Ошибка при получении сессии: {e}")
             return None
+
+class InsidersInfoDAO(BaseDAO):
+    model = InsiderInfo
+
+    async def create_or_update(self, user_id: int, student_organization: str = None, geo_link: str = None):
+        """
+        Создает или обновляет информацию об инсайдере
+        """
+        logger.info(f"Создание или обновление информации инсайдера для пользователя {user_id}")
+        try:
+            # Ищем существующую запись
+            query = select(self.model).filter_by(user_id=user_id)
+            result = await self._session.execute(query)
+            insider_info = result.scalar_one_or_none()
+            
+            if insider_info:
+                # Обновляем существующую запись
+                if student_organization is not None:
+                    insider_info.student_organization = student_organization
+                if geo_link is not None:
+                    insider_info.geo_link = geo_link
+                await self._session.commit()
+                logger.info(f"Информация инсайдера для пользователя {user_id} обновлена")
+                return insider_info
+            else:
+                # Создаем новую запись
+                insider_info = InsiderInfo(
+                    user_id=user_id, 
+                    student_organization=student_organization, 
+                    geo_link=geo_link
+                )
+                self._session.add(insider_info)
+                await self._session.commit()
+                logger.info(f"Информация инсайдера для пользователя {user_id} создана")
+                return insider_info
+        except Exception as e:
+            logger.error(f"Ошибка при создании/обновлении информации инсайдера: {e}")
+            await self._session.rollback()
+            raise
+
+    async def get_by_user_id(self, user_id: int):
+        """
+        Получает информацию об инсайдере по ID пользователя
+        """
+        logger.info(f"Получение информации инсайдера для пользователя {user_id}")
+        try:
+            query = select(self.model).filter_by(user_id=user_id)
+            result = await self._session.execute(query)
+            insider_info = result.scalar_one_or_none()
+            logger.info(f"Информация инсайдера {'найдена' if insider_info else 'не найдена'}")
+            return insider_info
+        except Exception as e:
+            logger.error(f"Ошибка при получении информации инсайдера: {e}")
+            raise

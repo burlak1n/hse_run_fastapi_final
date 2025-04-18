@@ -6,12 +6,12 @@ import io
 import base64
 from typing import Optional, Union, List, Dict, Any
 
-from app.auth.models import User, CommandsUser, Command
+from app.auth.models import User, CommandsUser, Command, InsiderInfo
 from app.auth.utils import set_tokens, generate_qr_image
 from app.dependencies.auth_dep import get_access_token, get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
-from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter
+from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO, InsidersInfoDAO
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter, UpdateProfileRequest
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
@@ -48,6 +48,14 @@ async def telegram_auth(
 
     # Создаём сессию с помощью DAO
     session_token = await session_dao.create_session(user.id)
+    
+    # Проверяем наличие кода регистрации для инсайдера
+    registration_type = "default"
+    
+    # Если передан код регистрации и он указывает на инсайдера
+    if user_data.registration_code and user_data.registration_code == "insider":
+        registration_type = "insider"
+        
     response = JSONResponse(
         content={
             "ok": True,
@@ -58,7 +66,8 @@ async def telegram_auth(
                 "full_name": user.full_name,
                 "telegram_username": user.telegram_username,
                 "is_active": user.role_id is not None
-            }
+            },
+            "registration_type": registration_type
         }
     )
     set_tokens(response, session_token)
@@ -72,12 +81,45 @@ async def complete_registration(
     user: User = Depends(get_current_user)
 ):
     users_dao = UsersDAO(session)
+    roles_dao = RolesDAO(session)
+    
+    # Определяем роль пользователя (инсайдер или гость)
+    role_name = "guest"
+    
+    # Если есть данные студенческой организации, значит это инсайдер
+    if request.student_organization:
+        role_name = "insider"
+        
+    # Получаем ID роли
+    role = await roles_dao.find_one_or_none(filters=RoleFilter(name=role_name))
+    if not role:
+        logger.error(f"Роль {role_name} не найдена")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "message": "Ошибка при выборе роли пользователя"}
+        )
     
     # Обновляем данные пользователя
     await users_dao.update(
-        filters=UserFindCompleteRegistration(id = user.id),
-        values=UserMakeCompleteRegistration(full_name=request.full_name, role_id=1)  # role_id = 1 - стандартная роль гостя
+        filters=UserFindCompleteRegistration(id=user.id),
+        values=UserMakeCompleteRegistration(full_name=request.full_name, role_id=role.id)
     )
+    
+    # Если это инсайдер, сохраняем дополнительную информацию
+    if role_name == "insider" and (request.student_organization or request.geo_link):
+        try:
+            insiders_dao = InsidersInfoDAO(session)
+            await insiders_dao.create_or_update(
+                user_id=user.id, 
+                student_organization=request.student_organization,
+                geo_link=request.geo_link
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении информации инсайдера: {e}")
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "message": "Ошибка при сохранении дополнительной информации"}
+            )
     
     return {
         "ok": True,
@@ -118,7 +160,8 @@ async def get_me(
             selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.user),
             selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.role),
             selectinload(User.commands).joinedload(CommandsUser.role),
-            selectinload(User.role)
+            selectinload(User.role),
+            selectinload(User.insider_info)
         ]
     )
     
@@ -140,15 +183,24 @@ async def get_me(
         commands_info.append(command_info)
 
     # Возвращаем информацию о пользователе
-    return SUserInfo(
-        id=user.id,
-        full_name=user.full_name,
-        telegram_id=user.telegram_id,
-        telegram_username=user.telegram_username,
-        role=RoleModel(id=user.role.id, name=user.role.name),
-        commands=commands_info,
-        is_looking_for_friends=user.is_looking_for_friends
-    )
+    user_info = {
+        "id": user.id,
+        "full_name": user.full_name,
+        "telegram_id": user.telegram_id,
+        "telegram_username": user.telegram_username,
+        "role": RoleModel(id=user.role.id, name=user.role.name).model_dump() if user.role else None,
+        "commands": commands_info,
+        "is_looking_for_friends": user.is_looking_for_friends
+    }
+    
+    # Добавляем информацию инсайдера, если пользователь - инсайдер
+    if user.role and user.role.name == "insider" and user.insider_info:
+        user_info["insider_info"] = {
+            "student_organization": user.insider_info.student_organization,
+            "geo_link": user.insider_info.geo_link
+        }
+    
+    return user_info
 
 
 @router.get("/qr")
@@ -778,16 +830,33 @@ async def remove_user_from_command(
 
 @router.post("/update_profile")
 async def update_profile(
-    full_name: str = Body(..., embed=True),
+    request: UpdateProfileRequest,
     session: AsyncSession = Depends(get_session_with_commit),
     user: User = Depends(get_current_user)
 ):
     """Обновление профиля пользователя"""
-    logger.info(f"Обновление ФИО пользователя {user.id}")
+    logger.info(f"Обновление профиля пользователя {user.id}")
+    
+    if not user:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"ok": False, "message": "Пользователь не авторизован"}
+        )
     
     try:
         users_dao = UsersDAO(session)
-        await users_dao.update_full_name(user.id, full_name)
+        
+        # Обновляем ФИО пользователя
+        await users_dao.update_full_name(user.id, request.full_name)
+        
+        # Если пользователь - инсайдер и есть дополнительные поля, обновляем их
+        if user.role and user.role.name == "insider" and (request.student_organization is not None or request.geo_link is not None):
+            insiders_dao = InsidersInfoDAO(session)
+            await insiders_dao.create_or_update(
+                user_id=user.id,
+                student_organization=request.student_organization,
+                geo_link=request.geo_link
+            )
         
         return JSONResponse(
             status_code=200,

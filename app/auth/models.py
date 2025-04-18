@@ -40,10 +40,24 @@ class User(Base):
     
     # Вопросы, закрепленные за инсайдером
     insider_questions: Mapped[list["QuestionInsider"]] = relationship("QuestionInsider", back_populates="user")
+    
+    # Информация об инсайдере
+    insider_info: Mapped["InsiderInfo"] = relationship("InsiderInfo", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"Ваш профиль:\nФИО: {self.full_name}\ntelegram_id: {self.telegram_id}\ntelegram_username: {self.telegram_username}"
 
+class InsiderInfo(Base):
+    """Модель для хранения дополнительной информации об инсайдерах"""
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), unique=True)
+    student_organization: Mapped[str] = mapped_column(nullable=True)
+    geo_link: Mapped[str] = mapped_column(nullable=True)
+    
+    # Обратная связь с пользователем
+    user: Mapped["User"] = relationship("User", back_populates="insider_info")
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(user_id={self.user_id}, student_organization={self.student_organization})"
 
 class Command(Base):
     name: Mapped[str]
