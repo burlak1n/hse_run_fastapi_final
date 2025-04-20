@@ -159,17 +159,21 @@ class UsersDAO(BaseDAO):
             logger.error(f"Ошибка при подсчете пользователей, ищущих команду: {e}")
             raise
 
-    async def get_registrations_by_date(self) -> list:
+    async def get_registrations_by_date(self, role_name: str = None) -> list:
         """
         Получает статистику регистраций пользователей по дням
         
+        Args:
+            role_name: Опциональный параметр для фильтрации по роли
+
         Returns:
             Список словарей с датой и количеством регистраций
         """
-        logger.info("Получение статистики регистраций по дням")
+        logger.info(f"Получение статистики регистраций по дням{' для роли: ' + role_name if role_name else ''}")
         try:
-            from sqlalchemy import func
+            from sqlalchemy import func, and_
             from datetime import datetime
+            from app.auth.models import Role
             
             # Устанавливаем минимальную дату для учета пользователей - 7 апреля
             cutoff_date = datetime(2025, 4, 7, 0, 0, 0)
@@ -181,6 +185,19 @@ class UsersDAO(BaseDAO):
                     func.count(self.model.id).label('count')
                 )
                 .where(self.model.created_at >= cutoff_date)
+            )
+            
+            # Добавляем фильтрацию по роли, если указана
+            if role_name:
+                query = (
+                    query
+                    .join(Role, self.model.role_id == Role.id)
+                    .where(Role.name == role_name)
+                )
+            
+            # Группировка и сортировка
+            query = (
+                query
                 .group_by(func.date(self.model.created_at))
                 .order_by(func.date(self.model.created_at))
             )

@@ -1006,7 +1006,7 @@ async def get_registration_stats(
         
         # Получаем статистику регистраций по дням
         try:
-            registrations_by_date = await users_dao.get_registrations_by_date()
+            registrations_by_date = await users_dao.get_registrations_by_date("guest")
             logger.info(f"Получены данные о регистрациях по дням: {len(registrations_by_date)} записей")
         except Exception as e:
             logger.error(f"Ошибка при получении данных о регистрациях по дням: {e}")
