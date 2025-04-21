@@ -872,7 +872,8 @@ async def update_profile(
 # Проверка активности события
 @router.get("/event/status")
 async def check_event_status(
-    session: AsyncSession = Depends(get_session_with_commit)
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     Проверяет, активно ли текущее событие
@@ -881,6 +882,11 @@ async def check_event_status(
         JSON с полем is_active: True, если событие активно, иначе False
     """
     try:
+        # Проверяем, является ли пользователь организатором
+        if user and user.role and user.role.name == "organizer":
+            # Организаторы всегда могут входить в квест
+            return {"is_active": True}
+            
         events_dao = EventsDAO(session)
         event_id = await events_dao.get_event_id_by_name()
         
