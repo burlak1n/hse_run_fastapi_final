@@ -20,7 +20,8 @@ class UserAdmin(ModelView, model=User):
         User.telegram_username,
         User.role,
         User.created_at,
-        User.updated_at
+        User.updated_at,
+        User.is_looking_for_friends
     ]
     form_columns = [
         User.full_name, 
@@ -28,6 +29,7 @@ class UserAdmin(ModelView, model=User):
         User.telegram_username, 
         User.role,
         User.created_at,
+        User.is_looking_for_friends,
     ]
     form_ajax_refs = {
         'role': {
@@ -36,7 +38,7 @@ class UserAdmin(ModelView, model=User):
         }
     }
     column_searchable_list = ["full_name"]
-    column_sortable_list = [User.id, User.full_name, "role", User.created_at, User.updated_at]
+    column_sortable_list = [User.id, User.full_name, "role", User.created_at, User.updated_at, User.is_looking_for_friends]
     
     def sort_query(self, stmt: Select, request: Request) -> Select:
         sort_by = request.query_params.get("sortBy")

@@ -1068,3 +1068,50 @@ async def get_registration_stats(
             status_code=500
         )
 
+@router.get("/users/looking_for_team")
+async def get_users_looking_for_team(
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(get_current_user)
+):
+    """
+    Возвращает список пользователей, которые ищут команду.
+    Любой пользователь может видеть всех, кто активировал поиск команды.
+    Текущий пользователь исключается из списка.
+    """
+    if not user:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"ok": False, "message": "Пользователь не авторизован"}
+        )
+    
+    try:
+        users_dao = UsersDAO(session)
+        
+        # Получаем всех пользователей, которые ищут команду
+        # независимо от статуса пользователя
+        looking_users = await users_dao.find_all_looking_for_team()
+        
+        # Фильтруем список, исключая текущего пользователя
+        users_list = [
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "telegram_username": u.telegram_username,
+                "is_captain": getattr(u, "is_captain", False),
+                "team_name": getattr(u, "team_name", None)
+            }
+            for u in looking_users if u.id != user.id
+        ]
+        
+        return {
+            "ok": True,
+            "users": users_list
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении списка пользователей, ищущих команду: {str(e)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"ok": False, "message": "Ошибка при получении списка пользователей"}
+        )
+
