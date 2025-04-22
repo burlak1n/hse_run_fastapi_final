@@ -1,7 +1,7 @@
 from sqladmin import ModelView
 from sqlalchemy import Select
 from sqlalchemy.sql import func
-from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand, Session, CommandsUser, InsiderInfo
+from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand, Session, CommandsUser, InsiderInfo, Program
 from app.quest.models import Answer, Block, Question, AttemptType, Attempt, QuestionInsider
 from sqladmin.forms import FileField
 from fastapi import UploadFile, Request
@@ -579,3 +579,34 @@ class InsiderInfoAdmin(ModelView, model=InsiderInfo):
             else:
                 stmt = stmt.join(User, InsiderInfo.user_id == User.id).order_by(User.full_name.asc())
         return super().sort_query(stmt, request)
+
+class ProgramAdmin(ModelView, model=Program):
+    column_list = [
+        Program.id,
+        Program.user,
+        Program.score,
+        Program.comment,
+        Program.created_at,
+        Program.updated_at
+    ]
+    form_columns = [
+        Program.user,
+        Program.score,
+        Program.comment
+    ]
+    column_sortable_list = [Program.id, "user", Program.score, Program.comment, Program.created_at, Program.updated_at]
+    can_delete = True
+    can_view_details = True
+    
+    def format_user_link(model, attribute) -> Markup:
+        user = getattr(model, attribute)
+        if user:
+            return Markup(f'<a href="/cms/user/details/{user.id}">{user.full_name}</a>')
+        return Markup('')
+    
+    column_formatters = {
+        "user": format_user_link,
+    }
+    column_formatters_detail = {
+        "user": format_user_link,
+    }

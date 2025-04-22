@@ -7,7 +7,7 @@ from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, Sessi
 from app.auth.utils import create_session
 from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME
 from app.dao.base import BaseDAO
-from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command, InsiderInfo
+from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command, InsiderInfo, Program
 from app.logger import logger
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -811,3 +811,80 @@ class InsidersInfoDAO(BaseDAO):
         except Exception as e:
             logger.error(f"Ошибка при получении информации инсайдера: {e}")
             raise
+
+class ProgramDAO(BaseDAO):
+    """DAO для работы с баллами пользователей"""
+    model = Program
+    
+    async def add_score(self, user_id: int, score: float, comment: str = None) -> Program:
+        """
+        Добавляет новую запись с баллами для пользователя
+        
+        Args:
+            user_id: ID пользователя
+            score: Количество баллов (может быть отрицательным)
+            comment: Комментарий к начислению/списанию баллов
+        
+        Returns:
+            Созданная запись Program
+        """
+        logger.info(f"Добавление баллов пользователю {user_id}: {score}")
+        try:
+            new_record = Program(
+                user_id=user_id,
+                score=score,
+                comment=comment
+            )
+            self._session.add(new_record)
+            await self._session.flush()
+            logger.info(f"Успешно добавлены баллы пользователю {user_id}")
+            return new_record
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении баллов пользователю {user_id}: {e}")
+            raise
+    
+    async def get_total_score(self, user_id: int) -> float:
+        """
+        Получает сумму баллов пользователя
+        
+        Args:
+            user_id: ID пользователя
+        
+        Returns:
+            Сумма баллов пользователя
+        """
+        logger.info(f"Получение суммы баллов пользователя {user_id}")
+        try:
+            from sqlalchemy import func
+            
+            query = select(func.sum(self.model.score)).where(self.model.user_id == user_id)
+            result = await self._session.execute(query)
+            total_score = result.scalar_one_or_none() or 0
+            
+            logger.info(f"Сумма баллов пользователя {user_id}: {total_score}")
+            return total_score
+        except Exception as e:
+            logger.error(f"Ошибка при получении суммы баллов пользователя {user_id}: {e}")
+            return 0
+    
+    async def get_score_history(self, user_id: int) -> list[Program]:
+        """
+        Получает историю начисления баллов для пользователя
+        
+        Args:
+            user_id: ID пользователя
+        
+        Returns:
+            Список записей Program
+        """
+        logger.info(f"Получение истории баллов пользователя {user_id}")
+        try:
+            query = select(self.model).where(self.model.user_id == user_id).order_by(self.model.created_at.desc())
+            result = await self._session.execute(query)
+            history = result.scalars().all()
+            
+            logger.info(f"Получена история баллов пользователя {user_id}: {len(history)} записей")
+            return history
+        except Exception as e:
+            logger.error(f"Ошибка при получении истории баллов пользователя {user_id}: {e}")
+            return []

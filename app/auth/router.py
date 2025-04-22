@@ -10,8 +10,8 @@ from app.auth.models import User, CommandsUser, Command, InsiderInfo
 from app.auth.utils import set_tokens, generate_qr_image
 from app.dependencies.auth_dep import get_access_token, get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
-from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO, InsidersInfoDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter, UpdateProfileRequest
+from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO, InsidersInfoDAO, ProgramDAO
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter, UpdateProfileRequest, ProgramScoreAdd, ProgramScoreInfo, ProgramScoreTotal
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
@@ -276,7 +276,8 @@ async def verify_qr(
     Проверяет валидность сессионного токена.
     В зависимости от роли пользователя, который сканирует:
     - guest: показывает информацию о команде и возможность присоединения
-    - insider/organizer: возвращает информацию о команде
+    - insider/organizer/ctc: возвращает информацию о команде
+    - ctc: дополнительно возвращает информацию о баллах пользователя
     """
     if not scanner_user:
         logger.warning("Попытка проверки QR-кода неавторизованным пользователем")
@@ -340,15 +341,15 @@ async def verify_qr(
         logger.error(f"Ошибка при проверке команды сканирующего пользователя: {str(e)}")
     
     # Обработка в зависимости от роли сканирующего
-    if not scanner_user or not scanner_user.role or scanner_user.role.name not in ["insider", "organizer", "guest"]:
+    if not scanner_user or not scanner_user.role or scanner_user.role.name not in ["insider", "organizer", "guest", "ctc"]:
         logger.warning("Пользователь без роли пытается проверить QR-код")
         return {
             "ok": False,
             "message": "Недостаточно прав для проверки QR-кода"
         }
         
-    if scanner_user.role.name in ["insider", "organizer"]:
-        # Инсайдер или организатор - возвращаем полную информацию
+    if scanner_user.role.name in ["insider", "organizer", "ctc"]:
+        # Инсайдер, организатор или CTC - возвращаем полную информацию
         
         # Форматируем участников с помощью вспомогательной функции
         # Для QR-verify используем упрощенную версию (без ролей)
@@ -372,6 +373,18 @@ async def verify_qr(
                 "participants": participants
             }
         }
+        
+        # Если сканирует CTC, добавляем информацию о баллах
+        if scanner_user.role.name == "ctc":
+            program_dao = ProgramDAO(session)
+            try:
+                total_score = await program_dao.get_total_score(qr_user.id)
+                response_data["program"] = {
+                    "total_score": total_score,
+                    "can_add_score": True
+                }
+            except Exception as e:
+                logger.error(f"Ошибка при получении баллов пользователя {qr_user.id}: {str(e)}")
         
         can_join = scanner_user.role.name == "organizer" and not scanner_user_command and is_captain and len(qr_user_command.users) < 6
         
@@ -1113,5 +1126,185 @@ async def get_users_looking_for_team(
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"ok": False, "message": "Ошибка при получении списка пользователей"}
+        )
+
+# Новые эндпоинты для работы с баллами пользователей
+
+@router.post("/program/add_score")
+async def add_score(
+    user_id: int = Body(..., embed=True),
+    score_data: ProgramScoreAdd = Body(...),
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(get_current_user)
+):
+    """
+    Добавляет баллы пользователю.
+    Доступно только для роли "ctc".
+    """
+    logger.info(f"Попытка добавления баллов пользователю {user_id} пользователем {user.id}")
+    
+    # Проверяем, что пользователь авторизован и имеет роль "ctc"
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "message": "Необходима авторизация"}
+        )
+    
+    if not user.role or user.role.name != "ctc":
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "message": "Недостаточно прав для добавления баллов"}
+        )
+    
+    try:
+        # Проверяем, что пользователь существует
+        users_dao = UsersDAO(session)
+        target_user = await users_dao.find_one_by_id(user_id)
+        if not target_user:
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "message": "Пользователь не найден"}
+            )
+        
+        # Добавляем баллы
+        program_dao = ProgramDAO(session)
+        await program_dao.add_score(
+            user_id=user_id,
+            score=score_data.score,
+            comment=score_data.comment
+        )
+        
+        # Получаем обновленную сумму баллов
+        total_score = await program_dao.get_total_score(user_id)
+        
+        return {
+            "ok": True,
+            "message": f"Баллы успешно {'начислены' if score_data.score > 0 else 'списаны'}",
+            "total_score": total_score
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении баллов: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "message": "Ошибка при добавлении баллов"}
+        )
+
+@router.get("/program/user/{user_id}")
+async def get_user_score(
+    user_id: int,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(get_current_user)
+):
+    """
+    Получает информацию о баллах пользователя.
+    Доступно для роли "ctc" и для самого пользователя.
+    """
+    logger.info(f"Получение информации о баллах пользователя {user_id}")
+    
+    # Проверяем, что пользователь авторизован
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "message": "Необходима авторизация"}
+        )
+    
+    # Проверяем, что пользователь имеет право просматривать эту информацию
+    if user.id != user_id and (not user.role or user.role.name not in ["ctc", "organizer"]):
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "message": "Недостаточно прав для просмотра баллов другого пользователя"}
+        )
+    
+    try:
+        # Получаем информацию о пользователе
+        users_dao = UsersDAO(session)
+        target_user = await users_dao.find_one_by_id(user_id)
+        if not target_user:
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "message": "Пользователь не найден"}
+            )
+        
+        # Получаем информацию о баллах
+        program_dao = ProgramDAO(session)
+        total_score = await program_dao.get_total_score(user_id)
+        history = await program_dao.get_score_history(user_id)
+        
+        # Формируем ответ
+        result = ProgramScoreTotal(
+            user_id=user_id,
+            total_score=total_score,
+            history=[ProgramScoreInfo.model_validate(record) for record in history]
+        )
+        
+        return {
+            "ok": True,
+            "data": result.model_dump()
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при получении информации о баллах: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "message": "Ошибка при получении информации о баллах"}
+        )
+
+@router.post("/program/qr_add_score")
+async def qr_add_score(
+    token: str = Body(..., embed=True),
+    score_data: ProgramScoreAdd = Body(...),
+    session: AsyncSession = Depends(get_session_with_commit),
+    scanner_user: User = Depends(get_current_user)
+):
+    """
+    Быстрое добавление баллов при сканировании QR-кода.
+    Доступно только для роли "ctc".
+    """
+    logger.info(f"Попытка добавления баллов по QR-коду пользователем {scanner_user.id}")
+    
+    # Проверяем, что пользователь авторизован и имеет роль "ctc"
+    if not scanner_user:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "message": "Необходима авторизация"}
+        )
+    
+    if not scanner_user.role or scanner_user.role.name not in ["ctc", "organizer"]:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "message": "Недостаточно прав для добавления баллов"}
+        )
+    
+    try:
+        # Получаем пользователя, чей QR сканировали
+        qr_user = await get_current_user(token, session)
+        if not qr_user:
+            return JSONResponse(
+                status_code=401,
+                content={"ok": False, "message": "Срок действия QR-кода истек. Пожалуйста, получите новую ссылку в профиле."}
+            )
+        
+        # Добавляем баллы
+        program_dao = ProgramDAO(session)
+        await program_dao.add_score(
+            user_id=qr_user.id,
+            score=score_data.score,
+            comment=score_data.comment
+        )
+        
+        # Получаем обновленную сумму баллов
+        total_score = await program_dao.get_total_score(qr_user.id)
+        
+        return {
+            "ok": True,
+            "message": f"Баллы успешно {'начислены' if score_data.score > 0 else 'списаны'}",
+            "user_id": qr_user.id,
+            "user_name": qr_user.full_name,
+            "total_score": total_score
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении баллов: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "message": "Ошибка при добавлении баллов"}
         )
 

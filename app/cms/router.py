@@ -74,7 +74,7 @@ class AdminDashboardView(AdminPage):
 class AdminRiddleView(AdminPage):
     """Представление для создания загадок."""
     name = "Создание загадок"
-    icon = "fa-solid fa-puzzle-piece"
+    icon = "fa-solid fa-image"
     
     # Константы для генерации изображений
     BACKGROUND_IMAGE = "app/static/img/riddle_bg.jpg"  # Путь к базовому изображению
@@ -263,6 +263,305 @@ class AdminRiddleView(AdminPage):
         admin.app.post("/admin/riddle/generate")(require_organizer_role(self.generate_riddle))
 
 
+class AdminProgramView(AdminPage):
+    """Представление для работы с картой программы."""
+    name = "Программа"
+    icon = "fa-solid fa-map"
+    
+    async def get_program_page(self, request: Request) -> HTMLResponse:
+        """Отображает страницу с картой программы."""
+        from app.quest.dao import QuestionsDAO
+        from sqlalchemy.ext.asyncio import AsyncSession
+        
+        user = request.scope.get("user")
+        
+        # Получаем список вопросов для выпадающего списка
+        async with AsyncSession(engine) as session:
+            questions_dao = QuestionsDAO(session)
+            questions = await questions_dao.get_all_questions()
+        
+        return templates.TemplateResponse(
+            "admin/program.html",
+            {"request": request, "user": user, "questions": questions}
+        )
+    
+    async def get_map_markers(self, request: Request) -> JSONResponse:
+        """Возвращает все маркеры карты в формате JSON."""
+        # В будущем здесь будет логика получения маркеров из БД
+        # Пока возвращаем пустой список
+        return JSONResponse({
+            "ok": True,
+            "data": {
+                "markers": []
+            }
+        })
+    
+    async def save_map_markers(self, request: Request) -> JSONResponse:
+        """Сохраняет маркеры карты."""
+        try:
+            data = await request.json()
+            markers = data.get("markers", [])
+            
+            # В будущем здесь будет логика сохранения маркеров в БД
+            # Пока просто возвращаем те же данные
+            
+            return JSONResponse({
+                "ok": True,
+                "message": "Маркеры успешно сохранены",
+                "data": {
+                    "markers": markers
+                }
+            })
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении маркеров: {e}", exc_info=True)
+            return JSONResponse({
+                "ok": False,
+                "message": f"Ошибка при сохранении маркеров: {str(e)}"
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    async def get_program_stats(self, request: Request) -> JSONResponse:
+        """Возвращает статистику по программе мероприятия."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.auth.dao import ProgramDAO, UsersDAO
+        from sqlalchemy import func
+        
+        try:
+            async with AsyncSession(engine) as session:
+                # Получаем статистику по баллам
+                program_dao = ProgramDAO(session)
+                users_dao = UsersDAO(session)
+                
+                # Получаем общее количество пользователей в системе
+                total_users = await users_dao.count_all_users()
+                
+                # Формируем распределение пользователей по баллам
+                # Запрашиваем все суммы баллов пользователей
+                from sqlalchemy import select, func
+                from app.auth.models import Program, User
+                
+                # Находим всех активных пользователей с баллами
+                score_distribution = {}
+                try:
+                    # Группируем пользователей по сумме баллов
+                    query = select(
+                        func.sum(Program.score).label('total_score'),
+                        func.count().label('user_count')
+                    ).group_by(Program.user_id).having(func.sum(Program.score) > 0)
+                    
+                    result = await session.execute(query)
+                    scores = result.all()
+                    
+                    # Создаем распределение по баллам
+                    for score_row in scores:
+                        score = float(score_row.total_score)
+                        count = score_row.user_count
+                        
+                        # Если такого количества баллов еще нет в словаре, добавляем
+                        if score not in score_distribution:
+                            score_distribution[score] = 0
+                        
+                        # Увеличиваем счетчик пользователей с этим количеством баллов
+                        score_distribution[score] += 1
+                except Exception as e:
+                    logger.error(f"Ошибка при построении распределения баллов: {e}")
+                    score_distribution = {}
+                
+                # Получаем количество активных пользователей на площадке (все уникальные пользователи в таблице Program)
+                active_users_query = select(
+                    func.count(func.distinct(Program.user_id))
+                )
+                
+                active_users_result = await session.execute(active_users_query)
+                active_users = active_users_result.scalar_one_or_none() or 0
+                
+                # Получаем общее количество посещений (условно - количество записей о баллах)
+                total_visits_query = select(func.count(Program.id))
+                total_visits_result = await session.execute(total_visits_query)
+                total_visits = total_visits_result.scalar_one_or_none() or 0
+                
+                # Получаем количество активных команд (команды, чьи участники получали баллы)
+                from app.auth.models import Command, CommandsUser
+                
+                active_commands_query = select(
+                    func.count(func.distinct(Command.id))
+                ).join(
+                    CommandsUser, Command.id == CommandsUser.command_id
+                ).join(
+                    Program, CommandsUser.user_id == Program.user_id
+                )
+                
+                active_commands_result = await session.execute(active_commands_query)
+                active_commands = active_commands_result.scalar_one_or_none() or 0
+                
+                return JSONResponse({
+                    "ok": True,
+                    "data": {
+                        "active_users": active_users,  # Общее число уникальных пользователей с баллами
+                        "total_visits": total_visits,
+                        "active_commands": active_commands,  # Общее число команд с участниками, имеющими баллы
+                        "total_users": total_users,
+                        "score_distribution": score_distribution
+                    }
+                })
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики программы: {e}", exc_info=True)
+            return JSONResponse({
+                "ok": False,
+                "message": f"Ошибка при получении статистики: {str(e)}"
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    async def get_user_program_stats(self, request: Request, user_id: int) -> JSONResponse:
+        """Возвращает статистику по программе для конкретного пользователя."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.auth.dao import ProgramDAO, UsersDAO
+        
+        try:
+            async with AsyncSession(engine) as session:
+                program_dao = ProgramDAO(session)
+                users_dao = UsersDAO(session)
+                
+                # Получаем пользователя
+                user = await users_dao.find_one_by_id(user_id)
+                if not user:
+                    return JSONResponse({
+                        "ok": False,
+                        "message": "Пользователь не найден"
+                    }, status_code=status.HTTP_404_NOT_FOUND)
+                
+                # Получаем общую сумму баллов пользователя
+                total_score = await program_dao.get_total_score(user_id)
+                
+                # Получаем историю начисления баллов
+                history = await program_dao.get_score_history(user_id)
+                
+                # Преобразуем историю в удобный формат
+                history_data = []
+                for record in history:
+                    history_data.append({
+                        "id": record.id,
+                        "score": record.score,
+                        "comment": record.comment,
+                        "created_at": record.created_at.isoformat() if record.created_at else None
+                    })
+                
+                # Получаем команду пользователя, если есть
+                command = await users_dao.find_user_command_in_event(user_id)
+                command_data = None
+                if command:
+                    command_data = {
+                        "id": command.id,
+                        "name": command.name,
+                        "participants_count": len(command.users)
+                    }
+                
+                return JSONResponse({
+                    "ok": True,
+                    "data": {
+                        "user": {
+                            "id": user.id,
+                            "full_name": user.full_name,
+                            "telegram_username": user.telegram_username,
+                            "role": user.role.name if user.role else None
+                        },
+                        "program": {
+                            "total_score": float(total_score),
+                            "history": history_data
+                        },
+                        "command": command_data
+                    }
+                })
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики пользователя {user_id}: {e}", exc_info=True)
+            return JSONResponse({
+                "ok": False,
+                "message": f"Ошибка при получении статистики: {str(e)}"
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    async def get_top_users_stats(self, request: Request) -> JSONResponse:
+        """Возвращает список пользователей с наибольшим количеством баллов."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.auth.dao import ProgramDAO, UsersDAO
+        from sqlalchemy import select, func
+        from app.auth.models import Program, User
+        
+        # Получаем лимит из параметров запроса
+        limit = request.query_params.get("limit", "10")
+        try:
+            limit = int(limit)
+            if limit < 1 or limit > 100:
+                limit = 10
+        except ValueError:
+            limit = 10
+                
+        try:
+            async with AsyncSession(engine) as session:
+                # Создаем запрос для получения пользователей с суммой баллов
+                query = select(
+                    Program.user_id,
+                    func.sum(Program.score).label('total_score')
+                ).group_by(
+                    Program.user_id
+                ).order_by(
+                    func.sum(Program.score).desc()
+                ).limit(limit)
+                
+                result = await session.execute(query)
+                top_users_scores = result.all()
+                
+                # Получаем информацию о пользователях
+                top_users = []
+                for user_score in top_users_scores:
+                    user_id = user_score.user_id
+                    score = user_score.total_score
+                    
+                    # Получаем данные пользователя
+                    user_query = select(User).where(User.id == user_id)
+                    user_result = await session.execute(user_query)
+                    user = user_result.scalar_one_or_none()
+                    
+                    if user:
+                        # Получаем команду пользователя
+                        from app.auth.dao import UsersDAO
+                        users_dao = UsersDAO(session)
+                        command = await users_dao.find_user_command_in_event(user_id)
+                        
+                        top_users.append({
+                            "id": user_id,
+                            "full_name": user.full_name,
+                            "telegram_username": user.telegram_username,
+                            "role": user.role.name if user.role else None,
+                            "score": float(score),
+                            "command": {
+                                "id": command.id if command else None,
+                                "name": command.name if command else None
+                            }
+                        })
+                
+                return JSONResponse({
+                    "ok": True,
+                    "data": {
+                        "top_users": top_users,
+                        "limit": limit
+                    }
+                })
+        except Exception as e:
+            logger.error(f"Ошибка при получении топ пользователей: {e}", exc_info=True)
+            return JSONResponse({
+                "ok": False,
+                "message": f"Ошибка при получении статистики: {str(e)}"
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def register(self, admin: Admin) -> None:
+        """Регистрирует маршруты для работы с картой программы."""
+        admin.app.get("/admin/program")(require_organizer_role(self.get_program_page))
+        admin.app.get("/admin/program/")(require_organizer_role(self.get_program_page))
+        admin.app.get("/admin/program/get")(require_organizer_role(self.get_map_markers))
+        admin.app.post("/admin/program/save")(require_organizer_role(self.save_map_markers))
+        admin.app.get("/admin/program/stats")(require_organizer_role(self.get_program_stats))
+        admin.app.get("/admin/program/user/{user_id}/stats")(require_organizer_role(self.get_user_program_stats))
+        admin.app.get("/admin/program/top_users")(require_organizer_role(self.get_top_users_stats))
+
+
 class AdminAuthMiddleware(BaseHTTPMiddleware):
     """Middleware для аутентификации в админке, дающее доступ только пользователям с ролью organizer."""
     
@@ -409,16 +708,19 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     admin.app.add_middleware(AdminAuthMiddleware)
     
     # Добавляем панель управления
-    dashboard_view = AdminDashboardView()
-    dashboard_view.register(admin)
+    admin_dashboard = AdminDashboardView()
+    admin_dashboard.register(admin)
     
     # Добавляем страницу создания загадок
     riddle_view = AdminRiddleView()
     riddle_view.register(admin)
     
+    # Добавляем страницу работы с картой программы
+    program_view = AdminProgramView()
+    program_view.register(admin)
+    
     # Автоматически регистрируем все классы ModelView из модуля views
     for name, view in vars(views).items():
         if name.endswith('Admin') and hasattr(view, 'model'):
             admin.add_view(view)
-    
     return admin

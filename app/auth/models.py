@@ -5,7 +5,7 @@ from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
 from app.quest.models import Attempt, Block, QuestionInsider
 
 class Role(Base):
-    # "guest" "organizer" "insider" 
+    # "guest" "organizer" "insider" "ctc"
     name: Mapped[str_uniq]
     users: Mapped[list["User"]] = relationship(back_populates="role")
 
@@ -161,3 +161,15 @@ class Language(Base):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(id={self.id}, name={self.name})"
+
+class Program(Base):
+    """Модель для хранения баллов пользователей (посещения и взаимодействия)"""
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'))
+    score: Mapped[float] = mapped_column(default=0)
+    comment: Mapped[str | None] = mapped_column(nullable=True)
+    
+    # Обратная связь с пользователем
+    user: Mapped["User"] = relationship("User", backref="program_scores")
+    
+    def __repr__(self):
+        return f"{self.__class__.__name__}(user_id={self.user_id}, score={self.score})"

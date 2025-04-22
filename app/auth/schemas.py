@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field
-from typing import Optional
+from typing import Optional, List
 
 
 class UserTelegramID(BaseModel):
@@ -161,3 +161,24 @@ class CommandsUser(CommandsUserBase):
 
 class RoleFilter(BaseModel):
     name: str
+
+class ProgramScoreAdd(BaseModel):
+    """Схема для добавления баллов пользователю"""
+    score: float = Field(description="Количество баллов (может быть отрицательным)")
+    comment: Optional[str] = Field(default=None, description="Комментарий к начислению/списанию баллов")
+
+class ProgramScoreInfo(BaseModel):
+    """Схема для получения информации о баллах пользователя"""
+    id: int = Field(description="Идентификатор записи")
+    user_id: int = Field(description="Идентификатор пользователя")
+    score: float = Field(description="Количество баллов")
+    comment: Optional[str] = Field(description="Комментарий")
+    created_at: datetime = Field(description="Дата и время создания записи")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class ProgramScoreTotal(BaseModel):
+    """Схема для получения суммы баллов пользователя"""
+    user_id: int = Field(description="Идентификатор пользователя")
+    total_score: float = Field(description="Сумма баллов")
+    history: List[ProgramScoreInfo] = Field(description="История начисления баллов")

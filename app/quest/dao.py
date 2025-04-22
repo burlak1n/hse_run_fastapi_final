@@ -1,9 +1,12 @@
 from app.logger import logger
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, insert, update, delete, and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.dao.base import BaseDAO
 from app.quest.models import Answer, Block, Question, QuestionInsider
+from app.auth.models import User
 from sqlalchemy.exc import SQLAlchemyError
+from typing import List, Optional, Dict, Any
 
 class BlocksDAO(BaseDAO):
     model = Block
@@ -22,7 +25,21 @@ class BlocksDAO(BaseDAO):
             raise
         
 class QuestionsDAO(BaseDAO):
+    """DAO для работы с вопросами"""
+    
     model = Question
+    
+    async def get_all_questions(self) -> List[Question]:
+        """Возвращает все вопросы"""
+        stmt = select(Question).order_by(Question.id)
+        result = await self._session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_questions_by_block(self, block_id: int) -> List[Question]:
+        """Возвращает все вопросы в блоке"""
+        stmt = select(Question).where(Question.block_id == block_id).order_by(Question.id)
+        result = await self._session.execute(stmt)
+        return result.scalars().all()
 
     async def find_by_block_id(self, block_id: int):
         """Находит все вопросы для указанного блока"""

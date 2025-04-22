@@ -1,0 +1,656 @@
+{% extends "admin/base.html" %}
+{% from "admin/components/program_statistics.html" import render_program_statistics_component, program_statistics_scripts %}
+
+{% block title %}Программа{% endblock %}
+
+{% block header %}Программа{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""/>
+<style>
+    #map {
+        height: 600px;
+        width: 100%;
+        border-radius: 5px;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+    }
+    
+    .map-container {
+        margin-top: 20px;
+    }
+    
+    .controls {
+        margin-bottom: 20px;
+    }
+    
+    .controls .form-group {
+        margin-bottom: 10px;
+    }
+    
+    .control-panel {
+        background-color: #f5f5f5;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+    
+    .marker-info {
+        margin-top: 15px;
+    }
+    
+    .marker-list {
+        margin-top: 20px;
+    }
+    
+    .marker-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        margin-bottom: 5px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border-left: 4px solid #4285f4;
+    }
+    
+    .marker-item:hover {
+        background: #e9ecef;
+    }
+    
+    .marker-actions {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .marker-actions button {
+        padding: 3px 8px;
+        font-size: 0.8rem;
+    }
+    
+    label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+    .btn-group {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .btn-primary {
+        background-color: #4285f4;
+    }
+    
+    .btn-danger {
+        background-color: #ea4335;
+    }
+    
+    .btn-warning {
+        background-color: #fbbc05;
+    }
+    
+    .btn-success {
+        background-color: #34a853;
+    }
+    
+    .leaflet-container {
+        background: transparent;
+    }
+    
+    .alert {
+        padding: 10px 15px;
+        margin-bottom: 15px;
+        border-radius: 4px;
+    }
+    
+    .alert-info {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+    }
+    
+    .stats-panel {
+        background-color: #f5f5f5;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: center;
+    }
+    
+    .stats-card.single {
+        background-color: white;
+        border-radius: 4px;
+        padding: 10px 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        text-align: center;
+        width: 250px;
+    }
+    
+    .stats-card h3 {
+        margin: 0 0 5px 0;
+        color: #34a853;
+    }
+    
+    .stats-card p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: #666;
+    }
+    
+    .stats-card .number {
+        font-size: 1.8rem;
+        font-weight: bold;
+        color: #4285f4;
+    }
+    
+    .stats-refresh {
+        background-color: transparent;
+        border: none;
+        color: #4285f4;
+        cursor: pointer;
+        padding: 5px;
+        font-size: 0.9rem;
+    }
+    
+    .stats-refresh:hover {
+        text-decoration: underline;
+    }
+    
+    .stats-loading {
+        font-style: italic;
+        color: #888;
+    }
+    
+    .stats-graph-card {
+        background-color: white;
+        border-radius: 5px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Программа</h2>
+    <p>Разместите маркеры на карте, добавьте описания и привяжите задания</p>
+    
+    <!-- Панель статистики -->
+    <div class="stats-panel">
+        <div class="stats-card single">
+            <h3>Пользователей отмечено</h3>
+            <div class="number" id="active-users-count">--</div>
+            <p>Обновлено: <span id="last-updated">--</span></p>
+        </div>
+    </div>
+    
+    <!-- График распределения пользователей по баллам -->
+    <div class="stats-graph-card">
+        {{ render_program_statistics_component() }}
+    </div>
+    
+    <div class="alert alert-info">
+        <strong>Подсказка:</strong> Нажмите на карту, чтобы добавить новый маркер. Перетащите маркер для изменения его позиции.
+    </div>
+    
+    <div class="control-panel">
+        <div class="controls">
+            <div class="form-group">
+                <label for="marker-name">Название маркера</label>
+                <input type="text" id="marker-name" placeholder="Введите название...">
+            </div>
+            
+            <div class="form-group">
+                <label for="marker-description">Описание</label>
+                <textarea id="marker-description" placeholder="Введите описание места..."></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="marker-type">Тип маркера</label>
+                <select id="marker-type">
+                    <option value="location">Локация</option>
+                    <option value="quest">Задание</option>
+                    <option value="info">Информация</option>
+                    <option value="warning">Предупреждение</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="linked-task">Связанное задание</label>
+                <select id="linked-task">
+                    <option value="">Не выбрано</option>
+                    {% for question in questions %}
+                    <option value="{{ question.id }}">{{ question.title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="btn-group">
+                <button id="add-marker-btn" class="btn btn-primary">Добавить маркер</button>
+                <button id="save-all-btn" class="btn btn-success">Сохранить все</button>
+                <button id="reset-btn" class="btn btn-warning">Сбросить</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="map-container">
+        <div id="map"></div>
+    </div>
+    
+    <div class="marker-info">
+        <h3>Размещенные маркеры</h3>
+        <div id="marker-list" class="marker-list">
+            <!-- Маркеры будут добавлены через JavaScript -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ program_statistics_scripts() }}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Инициализация карты
+        const map = L.map('map', {
+            crs: L.CRS.Simple,
+            minZoom: -2,
+            maxZoom: 2,
+            zoomControl: true
+        });
+        
+        // Задаем размеры карты и изображения
+        const imageUrl = '/static/img/program_map_bg.png';
+        const imageBounds = [[0, 0], [2363, 2415]]; // Реальные размеры изображения в пикселях
+        
+        // Добавляем изображение как слой
+        L.imageOverlay(imageUrl, imageBounds, {
+            errorOverlayUrl: '/static/img/placeholder.png'
+        }).addTo(map);
+        
+        // Устанавливаем начальный вид и зум
+        map.fitBounds(imageBounds);
+        
+        // Массив для хранения маркеров
+        const markers = [];
+        let selectedMarker = null;
+        
+        // Иконки для разных типов маркеров
+        const markerIcons = {
+            location: L.icon({
+                iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34]
+            }),
+            quest: L.icon({
+                iconUrl: '/static/img/markers/quest-marker.png',
+                iconSize: [32, 32],
+                iconAnchor: [16, 32],
+                popupAnchor: [0, -32],
+                // Если иконки нет, используем стандартную с другим цветом
+                className: 'quest-marker'
+            }),
+            info: L.icon({
+                iconUrl: '/static/img/markers/info-marker.png',
+                iconSize: [32, 32],
+                iconAnchor: [16, 32],
+                popupAnchor: [0, -32],
+                className: 'info-marker'
+            }),
+            warning: L.icon({
+                iconUrl: '/static/img/markers/warning-marker.png',
+                iconSize: [32, 32],
+                iconAnchor: [16, 32],
+                popupAnchor: [0, -32],
+                className: 'warning-marker'
+            })
+        };
+        
+        // Функция для загрузки статистики
+        async function loadStats() {
+            const activeUsersElement = document.getElementById('active-users-count');
+            const lastUpdatedElement = document.getElementById('last-updated');
+            
+            try {
+                const response = await fetch('/admin/program/stats');
+                const result = await response.json();
+                
+                if (response.ok && result.data) {
+                    activeUsersElement.textContent = result.data.active_users || '0';
+                    
+                    // Форматируем время последнего обновления
+                    const now = new Date();
+                    const hours = now.getHours().toString().padStart(2, '0');
+                    const minutes = now.getMinutes().toString().padStart(2, '0');
+                    lastUpdatedElement.textContent = `${hours}:${minutes}`;
+                } else {
+                    console.error('Ошибка при загрузке статистики:', result.message);
+                }
+            } catch (error) {
+                console.error('Ошибка при загрузке статистики:', error);
+            }
+        }
+        
+        // Обработчик клика по карте для добавления маркера
+        map.on('click', (e) => {
+            const markerName = document.getElementById('marker-name').value.trim();
+            const markerDesc = document.getElementById('marker-description').value.trim();
+            const markerType = document.getElementById('marker-type').value;
+            const linkedTask = document.getElementById('linked-task').value;
+            
+            if (!markerName) {
+                alert('Пожалуйста, введите название маркера!');
+                return;
+            }
+            
+            // Создаем новый маркер
+            const marker = L.marker(e.latlng, {
+                draggable: true,
+                icon: markerIcons[markerType] || markerIcons.location
+            }).addTo(map);
+            
+            // Данные маркера
+            const markerData = {
+                id: Date.now(), // Временный id
+                name: markerName,
+                description: markerDesc,
+                type: markerType,
+                taskId: linkedTask,
+                latlng: e.latlng
+            };
+            
+            // Добавляем popup к маркеру
+            marker.bindPopup(`<b>${markerData.name}</b><br>${markerData.description}`);
+            
+            // Добавляем маркер в массив
+            markers.push({
+                marker: marker,
+                data: markerData
+            });
+            
+            // Обновляем список маркеров
+            updateMarkerList();
+            
+            // Очищаем поля формы
+            document.getElementById('marker-name').value = '';
+            document.getElementById('marker-description').value = '';
+        });
+        
+        // Функция для обновления списка маркеров
+        function updateMarkerList() {
+            const markerList = document.getElementById('marker-list');
+            markerList.innerHTML = '';
+            
+            markers.forEach((item, index) => {
+                const markerItem = document.createElement('div');
+                markerItem.className = 'marker-item';
+                markerItem.innerHTML = `
+                    <div>
+                        <strong>${item.data.name}</strong> 
+                        (${item.data.type}${item.data.taskId ? ', Задание ID: ' + item.data.taskId : ''})
+                    </div>
+                    <div class="marker-actions">
+                        <button class="btn-small btn-primary edit-marker" data-index="${index}">Изменить</button>
+                        <button class="btn-small btn-danger delete-marker" data-index="${index}">Удалить</button>
+                    </div>
+                `;
+                markerList.appendChild(markerItem);
+            });
+            
+            // Добавляем обработчики событий для кнопок
+            document.querySelectorAll('.edit-marker').forEach(button => {
+                button.addEventListener('click', function() {
+                    const index = parseInt(this.dataset.index);
+                    editMarker(index);
+                });
+            });
+            
+            document.querySelectorAll('.delete-marker').forEach(button => {
+                button.addEventListener('click', function() {
+                    const index = parseInt(this.dataset.index);
+                    deleteMarker(index);
+                });
+            });
+        }
+        
+        // Функция для редактирования маркера
+        function editMarker(index) {
+            const markerItem = markers[index];
+            selectedMarker = index;
+            
+            // Заполняем форму данными маркера
+            document.getElementById('marker-name').value = markerItem.data.name;
+            document.getElementById('marker-description').value = markerItem.data.description;
+            document.getElementById('marker-type').value = markerItem.data.type;
+            document.getElementById('linked-task').value = markerItem.data.taskId || '';
+            
+            // Изменяем кнопку добавления на обновление
+            const addBtn = document.getElementById('add-marker-btn');
+            addBtn.textContent = 'Обновить маркер';
+            addBtn.classList.remove('btn-primary');
+            addBtn.classList.add('btn-success');
+            
+            // Добавляем обработчик для обновления
+            addBtn.onclick = function() {
+                updateMarker();
+            };
+        }
+        
+        // Функция для обновления маркера
+        function updateMarker() {
+            if (selectedMarker === null) return;
+            
+            const markerName = document.getElementById('marker-name').value.trim();
+            const markerDesc = document.getElementById('marker-description').value.trim();
+            const markerType = document.getElementById('marker-type').value;
+            const linkedTask = document.getElementById('linked-task').value;
+            
+            if (!markerName) {
+                alert('Пожалуйста, введите название маркера!');
+                return;
+            }
+            
+            // Обновляем данные маркера
+            markers[selectedMarker].data.name = markerName;
+            markers[selectedMarker].data.description = markerDesc;
+            markers[selectedMarker].data.type = markerType;
+            markers[selectedMarker].data.taskId = linkedTask;
+            
+            // Обновляем иконку маркера
+            markers[selectedMarker].marker.setIcon(markerIcons[markerType] || markerIcons.location);
+            
+            // Обновляем popup
+            markers[selectedMarker].marker.bindPopup(`<b>${markerName}</b><br>${markerDesc}`);
+            
+            // Обновляем список маркеров
+            updateMarkerList();
+            
+            // Сбрасываем выбранный маркер и форму
+            resetForm();
+        }
+        
+        // Функция для удаления маркера
+        function deleteMarker(index) {
+            if (confirm('Вы уверены, что хотите удалить этот маркер?')) {
+                // Удаляем маркер с карты
+                map.removeLayer(markers[index].marker);
+                
+                // Удаляем из массива
+                markers.splice(index, 1);
+                
+                // Обновляем список
+                updateMarkerList();
+                
+                // Если был выбран маркер для редактирования, сбрасываем форму
+                if (selectedMarker === index) {
+                    resetForm();
+                } else if (selectedMarker !== null && selectedMarker > index) {
+                    // Корректируем индекс выбранного маркера
+                    selectedMarker--;
+                }
+            }
+        }
+        
+        // Функция для сброса формы
+        function resetForm() {
+            document.getElementById('marker-name').value = '';
+            document.getElementById('marker-description').value = '';
+            document.getElementById('marker-type').value = 'location';
+            document.getElementById('linked-task').value = '';
+            
+            // Восстанавливаем кнопку добавления
+            const addBtn = document.getElementById('add-marker-btn');
+            addBtn.textContent = 'Добавить маркер';
+            addBtn.classList.remove('btn-success');
+            addBtn.classList.add('btn-primary');
+            
+            // Сбрасываем обработчик
+            addBtn.onclick = null;
+            
+            selectedMarker = null;
+        }
+        
+        // Функция для сохранения всех маркеров
+        async function saveAllMarkers() {
+            if (markers.length === 0) {
+                alert('Нет маркеров для сохранения!');
+                return;
+            }
+            
+            // Подготавливаем данные для отправки
+            const markersData = markers.map(item => {
+                return {
+                    id: item.data.id,
+                    name: item.data.name,
+                    description: item.data.description,
+                    type: item.data.type,
+                    taskId: item.data.taskId || null,
+                    lat: item.data.latlng.lat,
+                    lng: item.data.latlng.lng
+                };
+            });
+            
+            try {
+                const response = await fetch('/admin/program/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ markers: markersData }),
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Маркеры успешно сохранены!');
+                    // После сохранения можно обновить ID маркеров
+                    if (result.data && result.data.markers) {
+                        // Обновляем ID маркеров из ответа сервера
+                        result.data.markers.forEach((savedMarker, index) => {
+                            if (index < markers.length) {
+                                markers[index].data.id = savedMarker.id;
+                            }
+                        });
+                        updateMarkerList();
+                    }
+                } else {
+                    alert(`Ошибка: ${result.message || 'Не удалось сохранить маркеры'}`);
+                }
+            } catch (error) {
+                console.error('Ошибка при сохранении:', error);
+                alert('Произошла ошибка при сохранении маркеров');
+            }
+        }
+        
+        // Загрузка существующих маркеров при инициализации
+        async function loadMarkers() {
+            try {
+                const response = await fetch('/admin/program/get');
+                const result = await response.json();
+                
+                if (response.ok && result.data && result.data.markers) {
+                    result.data.markers.forEach(markerData => {
+                        // Создаем маркер из данных
+                        const marker = L.marker([markerData.lat, markerData.lng], {
+                            draggable: true,
+                            icon: markerIcons[markerData.type] || markerIcons.location
+                        }).addTo(map);
+                        
+                        // Добавляем popup
+                        marker.bindPopup(`<b>${markerData.name}</b><br>${markerData.description}`);
+                        
+                        // Добавляем в массив
+                        markers.push({
+                            marker: marker,
+                            data: {
+                                id: markerData.id,
+                                name: markerData.name,
+                                description: markerData.description,
+                                type: markerData.type,
+                                taskId: markerData.taskId,
+                                latlng: { lat: markerData.lat, lng: markerData.lng }
+                            }
+                        });
+                    });
+                    
+                    // Обновляем список маркеров
+                    updateMarkerList();
+                }
+            } catch (error) {
+                console.error('Ошибка при загрузке маркеров:', error);
+                alert('Не удалось загрузить существующие маркеры');
+            }
+        }
+        
+        // Обработчики событий
+        document.getElementById('add-marker-btn').addEventListener('click', function() {
+            // Если кнопка в режиме обновления, она уже имеет свой обработчик
+            if (selectedMarker === null) {
+                alert('Нажмите на карту, чтобы добавить маркер с указанными параметрами');
+            }
+        });
+        
+        document.getElementById('save-all-btn').addEventListener('click', saveAllMarkers);
+        
+        document.getElementById('reset-btn').addEventListener('click', function() {
+            if (confirm('Вы уверены, что хотите сбросить форму?')) {
+                resetForm();
+            }
+        });
+        
+        // Загружаем маркеры при загрузке страницы
+        loadMarkers();
+        
+        // Загружаем начальную статистику
+        loadStats();
+        
+        // Загружаем график статистики
+        renderProgramStatistics();
+        
+        // Настраиваем автоматическое обновление статистики каждые 60 секунд
+        setInterval(function() {
+            loadStats();
+            renderProgramStatistics();
+        }, 60000);
+    });
+</script>
+{% endblock %} 
