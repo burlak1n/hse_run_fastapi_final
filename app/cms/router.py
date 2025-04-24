@@ -322,85 +322,104 @@ class AdminProgramView(AdminPage):
     async def get_program_stats(self, request: Request) -> JSONResponse:
         """Возвращает статистику по программе мероприятия."""
         from sqlalchemy.ext.asyncio import AsyncSession
-        from app.auth.dao import ProgramDAO, UsersDAO
-        from sqlalchemy import func
-        
+        from app.auth.dao import UsersDAO # Убрали ProgramDAO, т.к. запросы к Program делаем напрямую
+        from sqlalchemy import func, select
+        from app.auth.models import Program, User, Command, CommandsUser
+
         try:
             async with AsyncSession(engine) as session:
-                # Получаем статистику по баллам
-                program_dao = ProgramDAO(session)
                 users_dao = UsersDAO(session)
                 
-                # Получаем общее количество пользователей в системе
                 total_users = await users_dao.count_all_users()
                 
-                # Формируем распределение пользователей по баллам
-                # Запрашиваем все суммы баллов пользователей
-                from sqlalchemy import select, func
-                from app.auth.models import Program, User
-                
-                # Находим всех активных пользователей с баллами
-                score_distribution = {}
-                try:
-                    # Группируем пользователей по сумме баллов
-                    query = select(
-                        func.sum(Program.score).label('total_score'),
-                        func.count().label('user_count')
-                    ).group_by(Program.user_id).having(func.sum(Program.score) > 0)
-                    
-                    result = await session.execute(query)
-                    scores = result.all()
-                    
-                    # Создаем распределение по баллам
-                    for score_row in scores:
-                        score = float(score_row.total_score)
-                        count = score_row.user_count
-                        
-                        # Если такого количества баллов еще нет в словаре, добавляем
-                        if score not in score_distribution:
-                            score_distribution[score] = 0
-                        
-                        # Увеличиваем счетчик пользователей с этим количеством баллов
-                        score_distribution[score] += 1
-                except Exception as e:
-                    logger.error(f"Ошибка при построении распределения баллов: {e}")
-                    score_distribution = {}
-                
-                # Получаем количество активных пользователей на площадке (все уникальные пользователи в таблице Program)
                 active_users_query = select(
                     func.count(func.distinct(Program.user_id))
                 )
-                
                 active_users_result = await session.execute(active_users_query)
                 active_users = active_users_result.scalar_one_or_none() or 0
-                
-                # Получаем общее количество посещений (условно - количество записей о баллах)
-                total_visits_query = select(func.count(Program.id))
-                total_visits_result = await session.execute(total_visits_query)
-                total_visits = total_visits_result.scalar_one_or_none() or 0
-                
-                # Получаем количество активных команд (команды, чьи участники получали баллы)
-                from app.auth.models import Command, CommandsUser
-                
-                active_commands_query = select(
-                    func.count(func.distinct(Command.id))
+
+                # Запрос для получения баллов команд (остается)
+                team_scores_query = select(
+                    Command.name.label('team_name'),
+                    func.sum(Program.score).label('total_score')
                 ).join(
                     CommandsUser, Command.id == CommandsUser.command_id
                 ).join(
                     Program, CommandsUser.user_id == Program.user_id
+                ).group_by(
+                    Command.id, Command.name
+                ).order_by(
+                    func.sum(Program.score).desc()
                 )
+                team_scores_result = await session.execute(team_scores_query)
+                team_scores_data = team_scores_result.all()
+                team_scores = [
+                    {"name": row.team_name, "score": float(row.total_score)}
+                    for row in team_scores_data
+                ]
                 
-                active_commands_result = await session.execute(active_commands_query)
-                active_commands = active_commands_result.scalar_one_or_none() or 0
+                # Запрос для получения ID топ-10 пользователей по сумме баллов
+                top_user_ids_query = select(
+                    Program.user_id
+                ).group_by(
+                    Program.user_id
+                ).order_by(
+                    func.sum(Program.score).desc()
+                ).limit(10)
+                
+                top_user_ids_result = await session.execute(top_user_ids_query)
+                top_user_ids = [row.user_id for row in top_user_ids_result.all()]
+                
+                # Собираем данные о пользователях и их транзакциях
+                top_users_with_transactions = []
+                if top_user_ids:
+                    # Получаем информацию о пользователях одним запросом
+                    users_info_query = select(User).where(User.id.in_(top_user_ids))
+                    users_info_result = await session.execute(users_info_query)
+                    users_map = {user.id: user for user in users_info_result.scalars().all()}
+
+                    # Получаем команды пользователей (можно оптимизировать, но пока оставим так)
+                    commands_map = {}
+                    for user_id in top_user_ids:
+                        command = await users_dao.find_user_command_in_event(user_id)
+                        commands_map[user_id] = command
+
+                    # Получаем все транзакции для этих пользователей одним запросом
+                    transactions_query = select(Program).where(Program.user_id.in_(top_user_ids)).order_by(Program.created_at.desc())
+                    transactions_result = await session.execute(transactions_query)
+                    all_transactions = transactions_result.scalars().all()
+
+                    # Группируем транзакции по user_id
+                    user_transactions_map = {}
+                    for tx in all_transactions:
+                        if tx.user_id not in user_transactions_map:
+                            user_transactions_map[tx.user_id] = []
+                        user_transactions_map[tx.user_id].append({
+                            # "id": tx.id, # ID транзакции пока не нужен
+                            "score": tx.score,
+                            "comment": tx.comment or "",
+                            "created_at": tx.created_at.isoformat() if tx.created_at else None
+                        })
+                    
+                    # Формируем итоговый список top_users
+                    for user_id in top_user_ids:
+                        user = users_map.get(user_id)
+                        command = commands_map.get(user_id)
+                        if user:
+                            top_users_with_transactions.append({
+                                "id": user_id,
+                                "name": user.full_name or user.telegram_username or f"Пользователь #{user_id}",
+                                "team": command.name if command else None,
+                                "transactions": user_transactions_map.get(user_id, []) # Список транзакций пользователя
+                            })
                 
                 return JSONResponse({
                     "ok": True,
                     "data": {
-                        "active_users": active_users,  # Общее число уникальных пользователей с баллами
-                        "total_visits": total_visits,
-                        "active_commands": active_commands,  # Общее число команд с участниками, имеющими баллы
                         "total_users": total_users,
-                        "score_distribution": score_distribution
+                        "top_users": top_users_with_transactions, # Возвращаем пользователей с транзакциями
+                        "people_on_site": active_users,
+                        "team_scores": team_scores
                     }
                 })
         except Exception as e:
@@ -551,6 +570,50 @@ class AdminProgramView(AdminPage):
                 "message": f"Ошибка при получении статистики: {str(e)}"
             }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+    async def get_user_transactions(self, request: Request, user_id: int) -> JSONResponse:
+        """Возвращает историю транзакций пользователя."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.auth.dao import ProgramDAO, UsersDAO
+        
+        try:
+            async with AsyncSession(engine) as session:
+                program_dao = ProgramDAO(session)
+                users_dao = UsersDAO(session)
+                
+                # Получаем пользователя
+                user = await users_dao.find_one_by_id(user_id)
+                if not user:
+                    return JSONResponse({
+                        "ok": False,
+                        "message": "Пользователь не найден"
+                    }, status_code=status.HTTP_404_NOT_FOUND)
+                
+                # Получаем историю баллов пользователя
+                history = await program_dao.get_score_history(user_id)
+                
+                # Преобразуем историю в формат транзакций
+                transactions = []
+                for record in history:
+                    transaction_type = "credit" if record.score >= 0 else "debit"
+                    transactions.append({
+                        "id": record.id,
+                        "date": record.created_at.isoformat() if record.created_at else None,
+                        "description": record.comment or "Нет описания",
+                        "amount": abs(record.score),
+                        "type": transaction_type
+                    })
+                
+                return JSONResponse({
+                    "ok": True,
+                    "transactions": transactions
+                })
+        except Exception as e:
+            logger.error(f"Ошибка при получении транзакций пользователя {user_id}: {e}", exc_info=True)
+            return JSONResponse({
+                "ok": False,
+                "message": f"Ошибка при получении транзакций: {str(e)}"
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     def register(self, admin: Admin) -> None:
         """Регистрирует маршруты для работы с картой программы."""
         admin.app.get("/admin/program")(require_organizer_role(self.get_program_page))
@@ -560,6 +623,7 @@ class AdminProgramView(AdminPage):
         admin.app.get("/admin/program/stats")(require_organizer_role(self.get_program_stats))
         admin.app.get("/admin/program/user/{user_id}/stats")(require_organizer_role(self.get_user_program_stats))
         admin.app.get("/admin/program/top_users")(require_organizer_role(self.get_top_users_stats))
+        admin.app.get("/admin/program/user/{user_id}/transactions")(require_organizer_role(self.get_user_transactions))
 
 
 class AdminAuthMiddleware(BaseHTTPMiddleware):

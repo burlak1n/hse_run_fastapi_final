@@ -10,14 +10,14 @@ class Role(Base):
     users: Mapped[list["User"]] = relationship(back_populates="role")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(id={self.id}, name={self.name})"
+        return f"{self.name}"
 
 class RoleUserCommand(Base):
     # "member", "captain"
     name: Mapped[str_uniq]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(id={self.id}, name={self.name})"
+        return f"{self.name}"
 
 
 class User(Base):
@@ -45,7 +45,7 @@ class User(Base):
     insider_info: Mapped["InsiderInfo"] = relationship("InsiderInfo", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"Ваш профиль:\nФИО: {self.full_name}\ntelegram_id: {self.telegram_id}\ntelegram_username: {self.telegram_username}"
+        return f"{self.full_name}"
 
 class InsiderInfo(Base):
     """Модель для хранения дополнительной информации об инсайдерах"""
@@ -57,7 +57,7 @@ class InsiderInfo(Base):
     user: Mapped["User"] = relationship("User", back_populates="insider_info")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(user_id={self.user_id}, student_organization={self.student_organization})"
+        return f"{self.student_organization}"
 
 class Command(Base):
     name: Mapped[str]
@@ -87,7 +87,8 @@ class Command(Base):
             participants.append(participant_info)
         participants_str = "\n".join(participants)
         return f"Команда: {self.name} | {len(self.users)}/6\n{participants_str}"
-
+    def __repr__(self):
+        return f"{self.name}"
     # __table_args__ = (
     #     CheckConstraint('count_users >= 1 AND count_users <= 100', name='check_count_users_range'),
     # )
@@ -108,6 +109,9 @@ class Event(Base):
     # Связь с командами
     commands: Mapped[list["Command"]] = relationship("Command", back_populates="event")
 
+    def __repr__(self):
+        return f"{self.name}"
+
 class CommandsUser(BaseNoID):
     __table_args__ = (
         UniqueConstraint('command_id', 'user_id', name='unique_command_user'),
@@ -123,7 +127,7 @@ class CommandsUser(BaseNoID):
     role: Mapped["RoleUserCommand"] = relationship("RoleUserCommand")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(command_id={self.command_id}, user_id={self.user_id}, role_id={self.role_id})"
+        return f"{self.command_id}"
 
 
 class Session(Base):
@@ -160,7 +164,7 @@ class Language(Base):
     commands: Mapped[list["Command"]] = relationship("Command", back_populates="language", lazy="joined")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(id={self.id}, name={self.name})"
+        return f"{self.name}"
 
 class Program(Base):
     """Модель для хранения баллов пользователей (посещения и взаимодействия)"""
@@ -172,4 +176,4 @@ class Program(Base):
     user: Mapped["User"] = relationship("User", backref="program_scores")
     
     def __repr__(self):
-        return f"{self.__class__.__name__}(user_id={self.user_id}, score={self.score})"
+        return f"{self.comment}"

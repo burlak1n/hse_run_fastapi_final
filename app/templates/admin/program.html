@@ -189,18 +189,8 @@
 {% block content %}
 <div class="card">
     <h2>Программа</h2>
-    <p>Разместите маркеры на карте, добавьте описания и привяжите задания</p>
     
-    <!-- Панель статистики -->
-    <div class="stats-panel">
-        <div class="stats-card single">
-            <h3>Пользователей отмечено</h3>
-            <div class="number" id="active-users-count">--</div>
-            <p>Обновлено: <span id="last-updated">--</span></p>
-        </div>
-    </div>
-    
-    <!-- График распределения пользователей по баллам -->
+    <!-- Компонент статистики программы (остается) -->
     <div class="stats-graph-card">
         {{ render_program_statistics_component() }}
     </div>
@@ -269,6 +259,34 @@
     crossorigin=""></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
+        // --- УДАЛЕНА загрузка статистики для старой панели ---
+        // async function loadStats() {
+        //     const activeUsersElement = document.getElementById('active-users-count');
+        //     const lastUpdatedElement = document.getElementById('last-updated');
+            
+        //     try {
+        //         const response = await fetch('/admin/program/stats');
+        //         const result = await response.json();
+                
+        //         if (response.ok && result.data) {
+        //             activeUsersElement.textContent = result.data.active_users || '0';
+                    
+        //             // Форматируем время последнего обновления
+        //             const now = new Date();
+        //             const hours = now.getHours().toString().padStart(2, '0');
+        //             const minutes = now.getMinutes().toString().padStart(2, '0');
+        //             lastUpdatedElement.textContent = `${hours}:${minutes}`;
+        //         } else {
+        //             console.error('Ошибка при загрузке статистики:', result.message);
+        //         }
+        //     } catch (error) {
+        //         console.error('Ошибка при загрузке статистики:', error);
+        //     }
+        // }
+        
+        // // Вызов загрузки статистики при загрузке страницы
+        // loadStats(); 
+
         // Инициализация карты
         const map = L.map('map', {
             crs: L.CRS.Simple,
@@ -324,31 +342,6 @@
                 className: 'warning-marker'
             })
         };
-        
-        // Функция для загрузки статистики
-        async function loadStats() {
-            const activeUsersElement = document.getElementById('active-users-count');
-            const lastUpdatedElement = document.getElementById('last-updated');
-            
-            try {
-                const response = await fetch('/admin/program/stats');
-                const result = await response.json();
-                
-                if (response.ok && result.data) {
-                    activeUsersElement.textContent = result.data.active_users || '0';
-                    
-                    // Форматируем время последнего обновления
-                    const now = new Date();
-                    const hours = now.getHours().toString().padStart(2, '0');
-                    const minutes = now.getMinutes().toString().padStart(2, '0');
-                    lastUpdatedElement.textContent = `${hours}:${minutes}`;
-                } else {
-                    console.error('Ошибка при загрузке статистики:', result.message);
-                }
-            } catch (error) {
-                console.error('Ошибка при загрузке статистики:', error);
-            }
-        }
         
         // Обработчик клика по карте для добавления маркера
         map.on('click', (e) => {
@@ -640,17 +633,8 @@
         // Загружаем маркеры при загрузке страницы
         loadMarkers();
         
-        // Загружаем начальную статистику
-        loadStats();
-        
         // Загружаем график статистики
-        renderProgramStatistics();
-        
-        // Настраиваем автоматическое обновление статистики каждые 60 секунд
-        setInterval(function() {
-            loadStats();
-            renderProgramStatistics();
-        }, 60000);
+        updateProgramStatistics();И
     });
 </script>
 {% endblock %} 

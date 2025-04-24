@@ -1,154 +1,448 @@
 {% macro render_program_statistics_component() %}
-<div id="program-statistics-component">
-    <div id="program-stats-loading">Загрузка статистики...</div>
-    <div id="program-stats-content" style="display: none;">
-        <!-- График распределения пользователей по баллам -->
-        <div class="chart-container">
-            <canvas id="programScoreDistributionChart"></canvas>
+<div id="program-statistics-component" class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Статистика программы <span id="last-update-time" class="badge badge-secondary ml-2">Обновление...</span></h5>
+    </div>
+    <div class="card-body">
+        <div id="program-stats-content">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card bg-light mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">Распределение баллов по командам</h5>
+                            <div class="chart-container">
+                                <canvas id="teamScoresChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h5 class="card-title">Баллы пользователей (<span id="people-on-site-count" class="badge badge-primary">N/A</span>):</h5>
+                            <div id="top-users-list" class="list-group mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h5 class="card-title">Начисления пользователей:</h5>
+                            <div id="top-users-by-credits-list" class="list-group mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal fade" id="userTransactionsModal" tabindex="-1" role="dialog" aria-labelledby="userTransactionsModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="userTransactionsModalLabel">Транзакции пользователя</h5>
+                        </div>
+                        <div class="modal-body">
+                            <div id="transactions-loading" class="text-center py-3" style="display: none;">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="sr-only">Загрузка...</span>
+                                </div>
+                                <p class="mt-2">Загрузка транзакций...</p>
+                            </div>
+                            <div id="transactions-error" style="display:none;" class="alert alert-danger"></div>
+                            <div id="transactions-content" style="display:none;">
+                                <table id="userTransactionsTable" class="table table-sm">
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <style>
-    .chart-container {
-        width: 100%;
-        height: 300px;
-        margin-top: 20px;
-    }
+    .chart-container { width: 100%; height: 250px; }
+    .transaction-credit { color: #28a745; font-weight: bold; }
+    .transaction-debit { color: #dc3545; font-weight: bold; }
+    .user-score { font-size: 1.2rem; font-weight: bold; }
+    .user-team { font-size: 0.9rem; color: #6c757d; }
+    .user-item { cursor: pointer; transition: background-color 0.2s; }
+    .user-item:hover { background-color: #f8f9fa; }
+    .user-rank { display: inline-block; width: 25px; height: 25px; line-height: 25px; 
+                 text-align: center; border-radius: 50%; margin-right: 10px; }
+    .rank-1 { background-color: #ffd700; color: #212529; }
+    .rank-2 { background-color: #c0c0c0; color: #212529; }
+    .rank-3 { background-color: #cd7f32; color: #212529; }
+    .user-credits-count { font-size: 1.2rem; font-weight: bold; color: #28a745; }
 </style>
 {% endmacro %}
 
 {% macro program_statistics_scripts() %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Получение данных о пользователях программы
-    async function fetchProgramStatistics() {
+    let teamScoresChart = null;
+    let updateInterval = null;
+    const UPDATE_INTERVAL_MS = 30000; // 30 секунд
+    
+    // Переменные для отслеживания текущих открытых транзакций
+    let currentUserId = null;
+    let currentUserName = null;
+    let isTransactionsModalOpen = false;
+
+    async function fetchData(url, errorMsg = 'Ошибка при получении данных') {
         try {
-            const response = await fetch('/admin/program/stats');
-            if (!response.ok) {
-                throw new Error('Ошибка при получении данных');
-            }
+            // Добавляем уникальный идентификатор к запросу для обхода кэширования
+            const timestamp = Date.now();
+            const uniqueId = Math.random().toString(36).substring(2, 15);
+            
+            // Создаем специальный URL с несколькими параметрами для обхода кэширования
+            const nocacheUrl = url.includes('?') 
+                ? `${url}&_t=${timestamp}&_r=${uniqueId}` 
+                : `${url}?_t=${timestamp}&_r=${uniqueId}`;
+                
+            const response = await fetch(nocacheUrl, {
+                method: 'GET', // Явно указываем метод
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-No-Cache': uniqueId // Добавляем дополнительный заголовок для обхода кэширования
+                },
+                cache: 'no-store' // Явно указываем fetch API не использовать кэш
+            });
+            
+            if (!response.ok) throw new Error(errorMsg);
             const data = await response.json();
-            if (!data.ok) {
-                throw new Error(data.message || 'Ошибка получения данных');
-            }
-            return data.data;
+            if (!data.ok) throw new Error(data.message || errorMsg);
+            return data;
         } catch (error) {
             console.error('Ошибка:', error);
-            return null;
+            throw error;
         }
     }
     
-    // Отображение графика распределения пользователей по баллам
-    async function renderProgramStatistics() {
-        const statsLoading = document.getElementById('program-stats-loading');
-        const statsContent = document.getElementById('program-stats-content');
+    function updateLastUpdateTime() {
+        const now = new Date();
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const seconds = now.getSeconds().toString().padStart(2, '0');
+        document.getElementById('last-update-time').textContent = `Обновлено в ${hours}:${minutes}:${seconds}`;
+    }
+    
+    async function showUserTransactions(userId, userName) {
+        const modal = document.getElementById('userTransactionsModal');
+        const loadingEl = document.getElementById('transactions-loading');
+        const contentEl = document.getElementById('transactions-content');
+        const errorEl = document.getElementById('transactions-error');
+        const tableEl = document.querySelector('#userTransactionsTable tbody');
+        
+        // Сохраняем информацию о пользователе
+        currentUserId = userId;
+        currentUserName = userName;
+        isTransactionsModalOpen = true;
+        
+        document.getElementById('userTransactionsModalLabel').textContent = `Транзакции пользователя: ${userName}`;
+        
+        // Отображаем модальное окно
+        $(modal).modal('show');
+        
+        // Обработчик закрытия модального окна
+        $(modal).on('hidden.bs.modal', function() {
+            isTransactionsModalOpen = false;
+            currentUserId = null;
+            currentUserName = null;
+        });
+        
+        await updateUserTransactions();
+    }
+    
+    // Новая функция для обновления транзакций
+    async function updateUserTransactions() {
+        if (!currentUserId) return;
+        
+        const loadingEl = document.getElementById('transactions-loading');
+        const contentEl = document.getElementById('transactions-content');
+        const errorEl = document.getElementById('transactions-error');
+        const tableEl = document.querySelector('#userTransactionsTable tbody');
+        
+        loadingEl.style.display = 'block';
+        contentEl.style.display = 'none';
+        errorEl.style.display = 'none';
+        tableEl.innerHTML = '';
         
         try {
-            const stats = await fetchProgramStatistics();
-            if (!stats) {
-                // Просто скрываем загрузку без показа ошибки
-                statsLoading.style.display = 'none';
-                return;
-            }
+            console.log(`Обновляем транзакции для пользователя ${currentUserId}`);
+            const url = `/admin/program/user/${currentUserId}/transactions?show_all=true`;
+            console.log(`URL запроса: ${url}`);
             
-            // Скрываем загрузку и показываем контент
-            statsLoading.style.display = 'none';
-            statsContent.style.display = 'block';
+            const data = await fetchData(url, 'Ошибка при получении транзакций');
+            console.log('Получены данные:', data);
             
-            // Обновляем элементы статистики на странице
-            if (document.getElementById('active-users-count')) {
-                document.getElementById('active-users-count').textContent = stats.active_users || '0';
-            }
-            
-            if (document.getElementById('total-visits')) {
-                document.getElementById('total-visits').textContent = stats.total_visits || '0';
-            }
-            
-            if (document.getElementById('active-commands')) {
-                document.getElementById('active-commands').textContent = stats.active_commands || '0';
-            }
-            
-            if (document.getElementById('last-updated')) {
-                const now = new Date();
-                const hours = now.getHours().toString().padStart(2, '0');
-                const minutes = now.getMinutes().toString().padStart(2, '0');
-                document.getElementById('last-updated').textContent = `${hours}:${minutes}`;
-            }
-            
-            // График распределения пользователей по баллам
-            if (stats.score_distribution && Object.keys(stats.score_distribution).length > 0) {
-                const scoreValues = Object.keys(stats.score_distribution).sort((a, b) => parseFloat(a) - parseFloat(b));
-                const userCounts = scoreValues.map(score => stats.score_distribution[score]);
+            if (data.transactions && data.transactions.length > 0) {
                 
-                // Форматируем значения баллов для меток
-                const formattedLabels = scoreValues.map(score => {
-                    // Если число целое, показываем как целое, иначе с одним знаком после запятой
-                    const scoreNum = parseFloat(score);
-                    return (scoreNum % 1 === 0) ? scoreNum + ' баллов' : scoreNum.toFixed(1) + ' баллов';
-                });
-                
-                const scoreCtx = document.getElementById('programScoreDistributionChart').getContext('2d');
-                new Chart(scoreCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: formattedLabels,
-                        datasets: [{
-                            label: 'Количество пользователей',
-                            data: userCounts,
-                            backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                            borderColor: 'rgb(75, 192, 192)',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    precision: 0
-                                },
-                                title: {
-                                    display: true,
-                                    text: 'Количество пользователей'
-                                }
-                            },
-                            x: {
-                                title: {
-                                    display: true,
-                                    text: 'Баллы'
-                                }
-                            }
-                        },
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: 'Распределение пользователей по количеству баллов',
-                                font: {
-                                    size: 16
-                                }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    title: function(context) {
-                                        const scoreNum = parseFloat(scoreValues[context[0].dataIndex]);
-                                        return (scoreNum % 1 === 0) ? scoreNum + ' баллов' : scoreNum.toFixed(1) + ' баллов';
-                                    },
-                                    label: function(context) {
-                                        return `${context.raw} пользователей`;
-                                    }
-                                }
-                            }
-                        }
+                data.transactions.forEach(tx => {
+                    const date = new Date(tx.date);
+                    // Прибавляем 3 часа к времени
+                    date.setHours(date.getHours() + 3);
+                    // Форматируем только время (часы:минуты:секунды)
+                    const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                    
+                    const amountClass = tx.type === 'credit' ? 'transaction-credit' : 'transaction-debit';
+                    const amountPrefix = tx.type === 'credit' ? '+' : '-';
+                    
+                    // Получаем описание и обрабатываем его
+                    let description = tx.description ? tx.description.trim() : '';
+                    
+                    // Проверяем, что описание не "нет описания"
+                    const noDescription = description.toLowerCase() === 'нет описания';
+                    
+                    // Формируем HTML для отображения суммы с описанием
+                    let amountHTML = `<span class="${amountClass}">${amountPrefix}${Math.abs(tx.amount)}</span>`;
+                    
+                    // Если есть описание и оно не "нет описания", показываем в скобках
+                    if (description && !noDescription) {
+                        amountHTML += ` <span class="text-muted">(${description})</span>`;
                     }
+                    
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formattedTime}</td>
+                        <td class="text-right">${amountHTML}</td>
+                    `;
+                    tableEl.appendChild(row);
                 });
+                
+                // Добавляем только общее количество без выделения
+                if (data.transactions.length > 0) {
+                    const summaryRow = document.createElement('tr');
+                    summaryRow.innerHTML = `
+                        <td class="text-right" colspan="2">Всего: ${data.transactions.length}</td>
+                    `;
+                    tableEl.appendChild(summaryRow);
+                }
+            } else {
+                console.log('Транзакции не найдены или пустой массив');
+                
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = '<td colspan="3" class="text-center">Нет транзакций</td>';
+                tableEl.appendChild(emptyRow);
             }
+            
+            loadingEl.style.display = 'none';
+            contentEl.style.display = 'block';
         } catch (error) {
-            console.error('Ошибка при отображении статистики:', error);
-            statsLoading.style.display = 'none';
+            console.error('Ошибка при загрузке транзакций:', error);
+            loadingEl.style.display = 'none';
+            errorEl.textContent = `Ошибка: ${error.message}`;
+            errorEl.style.display = 'block';
         }
     }
+    
+    function renderTopUsers(users) {
+        const usersListEl = document.getElementById('top-users-list');
+        usersListEl.innerHTML = '';
+        
+        if (!users || users.length === 0) {
+            usersListEl.innerHTML = '<div class="alert alert-info">Нет данных о пользователях</div>';
+            return;
+        }
+        
+        users.forEach((user, index) => {
+            const totalScore = user.transactions.reduce((sum, tx) => sum + (tx.score || 0), 0);
+            const rankClass = index < 3 ? `rank-${index + 1}` : 'bg-secondary text-white';
+            
+            const userItem = document.createElement('div');
+            userItem.className = 'list-group-item d-flex justify-content-between align-items-center user-item';
+            userItem.innerHTML = `
+                <div>
+                    <span class="user-rank ${rankClass}">${index + 1}</span>
+                    <span>${user.name || 'Не указано'}</span>
+                    <div class="user-team">${user.team || 'Без команды'}</div>
+                </div>
+                <span class="user-score">${totalScore.toFixed(1)}</span>
+            `;
+            
+            userItem.addEventListener('click', () => {
+                showUserTransactions(user.id, user.name);
+            });
+            
+            usersListEl.appendChild(userItem);
+        });
+    }
+
+    function renderTopUsersByCredits(users) {
+        const usersListEl = document.getElementById('top-users-by-credits-list');
+        usersListEl.innerHTML = '';
+        
+        if (!users || users.length === 0) {
+            usersListEl.innerHTML = '<div class="alert alert-info">Нет данных о пользователях</div>';
+            return;
+        }
+        
+        // Создаем копию массива пользователей для сортировки по количеству начислений
+        const usersWithCreditsCount = users.map(user => {
+            // Считаем только положительные транзакции (начисления)
+            const creditsCount = user.transactions.filter(tx => tx.type === 'credit').length;
+            return {
+                ...user,
+                creditsCount
+            };
+        });
+        
+        // Сортируем по количеству начислений (от большего к меньшему)
+        usersWithCreditsCount.sort((a, b) => b.creditsCount - a.creditsCount);
+        
+        usersWithCreditsCount.forEach((user, index) => {
+            const rankClass = index < 3 ? `rank-${index + 1}` : 'bg-secondary text-white';
+            
+            const userItem = document.createElement('div');
+            userItem.className = 'list-group-item d-flex justify-content-between align-items-center user-item';
+            userItem.innerHTML = `
+                <div>
+                    <span class="user-rank ${rankClass}">${index + 1}</span>
+                    <span>${user.name || 'Не указано'}</span>
+                    <div class="user-team">${user.team || 'Без команды'}</div>
+                </div>
+                <span class="user-credits-count">${user.creditsCount}</span>
+            `;
+            
+            userItem.addEventListener('click', () => {
+                showUserTransactions(user.id, user.name);
+            });
+            
+            usersListEl.appendChild(userItem);
+        });
+    }
+    
+    function renderTeamScores(teamScores) {
+        const teamCtx = document.getElementById('teamScoresChart').getContext('2d');
+        
+        if (teamScoresChart) {
+            teamScoresChart.destroy();
+        }
+        
+        if (!teamScores || teamScores.length === 0) {
+            $(teamCtx.canvas).parent().html('<p class="text-center text-muted my-5">Нет данных для графика команд</p>');
+            return;
+        }
+        
+        const sortedTeams = [...teamScores].sort((a, b) => b.score - a.score);
+        const colors = [
+            'rgba(54, 162, 235, 0.7)',
+            'rgba(255, 99, 132, 0.7)',
+            'rgba(75, 192, 192, 0.7)',
+            'rgba(255, 159, 64, 0.7)',
+            'rgba(153, 102, 255, 0.7)',
+            'rgba(255, 205, 86, 0.7)',
+            'rgba(201, 203, 207, 0.7)',
+        ];
+            
+        teamScoresChart = new Chart(teamCtx, {
+            type: 'bar',
+            data: {
+                labels: sortedTeams.map(team => team.name || 'Без названия'),
+                datasets: [{
+                    label: 'Баллы команды',
+                    data: sortedTeams.map(team => team.score || 0),
+                    backgroundColor: sortedTeams.map((_, i) => colors[i % colors.length]),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Баллы' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.raw} баллов`
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    async function updateProgramStatistics(forceUpdate = false) {
+        try {
+            // При принудительном обновлении добавляем специальный параметр
+            const endpoint = forceUpdate 
+                ? '/admin/program/stats?force=true' 
+                : '/admin/program/stats';
+                
+            const data = await fetchData(endpoint);
+            const stats = data.data;
+            
+            // Обновляем время последнего обновления
+            updateLastUpdateTime();
+            
+            // Обновляем количество людей на площадке
+            if (document.getElementById('people-on-site-count')) {
+                document.getElementById('people-on-site-count').textContent = 
+                    stats.people_on_site !== undefined ? stats.people_on_site : 'N/A';
+            }
+            
+            // Обновляем график команд
+            renderTeamScores(stats.team_scores);
+            
+            // Обновляем список пользователей
+            renderTopUsers(stats.top_users);
+            
+            // Обновляем список пользователей по количеству начислений
+            renderTopUsersByCredits(stats.top_users);
+            
+            // Проверяем, открыты ли транзакции пользователя и обновляем их
+            if (isTransactionsModalOpen && currentUserId) {
+                await updateUserTransactions();
+            }
+            
+        } catch (error) {
+            console.error('Ошибка при обновлении статистики:', error);
+            document.getElementById('program-stats-content').innerHTML = 
+                '<div class="alert alert-danger">Не удалось загрузить статистику программы.</div>';
+        }
+    }
+    
+    function startRealTimeUpdates() {
+        // Первоначальное обновление
+        updateProgramStatistics();
+        
+        // Настраиваем периодическое обновление
+        if (updateInterval) {
+            clearInterval(updateInterval);
+        }
+        
+        updateInterval = setInterval(() => {
+            updateProgramStatistics();
+        }, UPDATE_INTERVAL_MS);
+    }
+    
+    // Добавляем кнопку для принудительного обновления данных
+    document.addEventListener('DOMContentLoaded', () => {
+        // Запускаем обновление
+        startRealTimeUpdates();
+    });
+    
+    // Останавливаем обновление при уходе со страницы
+    window.addEventListener('beforeunload', () => {
+        if (updateInterval) {
+            clearInterval(updateInterval);
+        }
+    });
 </script>
 {% endmacro %} 

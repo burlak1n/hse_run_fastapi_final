@@ -1,6 +1,7 @@
 from sqladmin import ModelView
 from sqlalchemy import Select
 from sqlalchemy.sql import func
+from wtforms.fields import TextAreaField
 from app.auth.models import Event, User, Role, Command, Language, RoleUserCommand, Session, CommandsUser, InsiderInfo, Program
 from app.quest.models import Answer, Block, Question, AttemptType, Attempt, QuestionInsider
 from sqladmin.forms import FileField
@@ -28,7 +29,7 @@ class UserAdmin(ModelView, model=User):
         User.telegram_id, 
         User.telegram_username, 
         User.role,
-        User.created_at,
+        # User.created_at,
         User.is_looking_for_friends,
     ]
     form_ajax_refs = {
@@ -138,7 +139,8 @@ class QuestionAdmin(ModelView, model=Question):
     form_overrides = {
         'image_path': FileField,
         'image_path_answered': FileField,
-        'hint_path': FileField
+        'hint_path': FileField,
+        'text_answered': TextAreaField
     }
 
     column_sortable_list = [
@@ -200,7 +202,6 @@ class QuestionAdmin(ModelView, model=Question):
         "image_path": format_image_url,
         "image_path_answered": format_image_url,
         "hint_path": format_image_url,
-        "text_answered": format_truncated_text,
         "answers": format_answer_text
     }
 

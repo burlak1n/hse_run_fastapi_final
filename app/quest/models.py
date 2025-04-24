@@ -15,13 +15,13 @@ class Block(Base):
     questions: Mapped[list["Question"]] = relationship("Question", back_populates="block")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(id={self.id}, title={self.title}, language_id={self.language_id})"
+        return f"{self.title}"
 
 
 class Question(Base):
     """Модель для вопросов в блоках квеста"""
-    block_id: Mapped[int] = mapped_column(ForeignKey('blocks.id'), nullable=False)
     title: Mapped[str]
+    block_id: Mapped[int] = mapped_column(ForeignKey('blocks.id'), nullable=False)
     image_path: Mapped[Optional[str]] = mapped_column(nullable=True)
     geo_answered: Mapped[str]
     text_answered: Mapped[str]
@@ -38,7 +38,7 @@ class Question(Base):
     insiders: Mapped[list["QuestionInsider"]] = relationship("QuestionInsider", back_populates="question", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"Question(id={self.id}, title={self.title}, block_id={self.block_id})"
+        return f"{self.title}"
 
 
 class Answer(Base):
@@ -90,4 +90,4 @@ class QuestionInsider(Base):
     user: Mapped["User"] = relationship("User", back_populates="insider_questions")
     
     def __repr__(self):
-        return f"QuestionInsider(question_id={self.question_id}, user_id={self.user_id})"
+        return f"{self.question_id}"
