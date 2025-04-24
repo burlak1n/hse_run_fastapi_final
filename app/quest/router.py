@@ -206,10 +206,17 @@ async def get_insider_tasks_status(
                 command_id=command_id,
                 question_id=question.id
             )
+            # Проверяем, решила ли команда эту загадку
+            is_solved_by_team = await attempts_dao.has_successful_solve_attempt(
+                command_id=command_id,
+                question_id=question.id
+            )
+            
             tasks_status.append({
                 "id": question.id,
                 "title": question.title,
-                "is_attendance_marked": is_marked
+                "is_attendance_marked": is_marked,
+                "can_mark_attendance": is_solved_by_team and not is_marked # Можно отметить, если решено и еще не отмечено
             })
             
         logger.info(f"Статус задач для инсайдера {scanner_user.id} и команды {command_id} успешно получен")
@@ -616,7 +623,19 @@ async def mark_insider_attendance(
                 status_code=status.HTTP_400_BAD_REQUEST # Используем 400, т.к. это ошибка запроса
             )
             
-        # 3. Определение типа отметки (insider или insider_hint)
+        # 3. Проверка, решена ли загадка командой
+        is_solved_by_team = await attempts_dao.has_successful_solve_attempt(
+            command_id=request.command_id,
+            question_id=request.question_id
+        )
+        if not is_solved_by_team:
+            logger.warning(f"Попытка отметить посещение нерешенной загадки {request.question_id} для команды {request.command_id}")
+            return JSONResponse(
+                content={"ok": False, "message": "Невозможно отметить посещение: команда еще не решила эту загадку."},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 4. Определение типа отметки (insider или insider_hint)
         has_hint_attempt = await attempts_dao.has_successful_attempt_of_type(
             command_id=request.command_id,
             question_id=request.question_id,
@@ -626,7 +645,7 @@ async def mark_insider_attendance(
         attempt_type_name = "insider_hint" if has_hint_attempt else "insider"
         logger.info(f"Определен тип отметки: {attempt_type_name}")
         
-        # 4. Получение ID типа попытки
+        # 5. Получение ID типа попытки
         attempt_type_id = await attempts_dao.get_attempt_type_id_by_name(attempt_type_name)
         if not attempt_type_id:
             logger.error(f"Не удалось найти ID для типа попытки {attempt_type_name}")
@@ -636,7 +655,7 @@ async def mark_insider_attendance(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             
-        # 5. Создание записи Attempt
+        # 6. Создание записи Attempt
         new_attempt = Attempt(
             user_id=request.scanned_user_id, # ID сканированного пользователя
             command_id=request.command_id,

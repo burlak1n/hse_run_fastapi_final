@@ -169,6 +169,23 @@ class AttemptsDAO(BaseDAO):
             logger.error(f"Ошибка при проверке insider/insider_hint попытки для команды {command_id}, вопроса {question_id}: {e}")
             raise
 
+    async def has_successful_solve_attempt(self, command_id: int, question_id: int) -> bool:
+        """Проверяет, есть ли успешная попытка решения (question/question_hint) для команды и вопроса."""
+        try:
+            query = select(Attempt).join(AttemptType).where(
+                Attempt.command_id == command_id,
+                Attempt.question_id == question_id,
+                Attempt.is_true == True,
+                AttemptType.name.in_(["question", "question_hint"])
+            )
+            result = await self._session.execute(query)
+            exists = result.scalar_one_or_none() is not None
+            logger.debug(f"Проверка успешной question/question_hint попытки для команды {command_id}, вопроса {question_id}: {exists}")
+            return exists
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при проверке question/question_hint попытки для команды {command_id}, вопроса {question_id}: {e}")
+            raise
+
     async def get_attempt_type_id_by_name(self, type_name: str) -> Optional[int]:
         """Получает ID типа попытки по его имени."""
         try:

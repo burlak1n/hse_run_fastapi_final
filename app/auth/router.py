@@ -326,8 +326,10 @@ async def verify_qr(
     
     # Проверяем, что владелец QR - капитан
     qr_user_role, is_captain = get_user_role_in_command(qr_user_command.users, qr_user.id)
-    if not is_captain:
-        logger.warning(f"Пользователь {qr_user.id} не является капитаном команды")
+    
+    # Проверка на капитана нужна только для гостей, пытающихся присоединиться
+    if not is_captain and scanner_user.role and scanner_user.role.name == "guest":
+        logger.warning(f"Гость {scanner_user.id} пытается присоединиться по QR не-капитана {qr_user.id}")
         return {
             "ok": False,
             "message": "Только QR капитана команды позволяет присоединиться"
