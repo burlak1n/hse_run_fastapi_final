@@ -1,5 +1,4 @@
 {% macro render_program_statistics_component() %}
-<div id="program-statistics-component" class="card">
     <div class="card-header">
         <h5 class="mb-0">Статистика программы <span id="last-update-time" class="badge badge-secondary ml-2">Обновление...</span></h5>
     </div>
@@ -17,10 +16,9 @@
                     </div>
                 </div>
             </div>
-            
             <div class="row">
                 <div class="col-md-6">
-                    <div class="card bg-light">
+                    <div class="card bg-light mb-3">
                         <div class="card-body">
                             <h5 class="card-title">Баллы пользователей (<span id="people-on-site-count" class="badge badge-primary">N/A</span>):</h5>
                             <div id="top-users-list" class="list-group mt-3"></div>
@@ -28,7 +26,7 @@
                     </div>
                 </div>
                 <div class="col-md-6">
-                    <div class="card bg-light">
+                    <div class="card bg-light mb-3">
                         <div class="card-body">
                             <h5 class="card-title">Начисления пользователей:</h5>
                             <div id="top-users-by-credits-list" class="list-group mt-3"></div>
@@ -64,7 +62,6 @@
             </div>
         </div>
     </div>
-</div>
 
 <style>
     .chart-container { width: 100%; height: 250px; }
@@ -288,20 +285,22 @@
             return;
         }
         
-        // Создаем копию массива пользователей для сортировки по количеству начислений
-        const usersWithCreditsCount = users.map(user => {
-            // Считаем только положительные транзакции (начисления)
-            const creditsCount = user.transactions.filter(tx => tx.type === 'credit').length;
+        // Создаем копию массива пользователей для сортировки по сумме начислений
+        const usersWithCreditsSum = users.map(user => {
+            // Считаем сумму положительных транзакций (начислений)
+            const creditsSum = user.transactions
+                .filter(tx => tx.score > 0)
+                .reduce((sum, tx) => sum + (tx.score || 0), 0);
             return {
                 ...user,
-                creditsCount
+                creditsSum
             };
         });
         
-        // Сортируем по количеству начислений (от большего к меньшему)
-        usersWithCreditsCount.sort((a, b) => b.creditsCount - a.creditsCount);
+        // Сортируем по сумме начислений (от большего к меньшему)
+        usersWithCreditsSum.sort((a, b) => b.creditsSum - a.creditsSum);
         
-        usersWithCreditsCount.forEach((user, index) => {
+        usersWithCreditsSum.forEach((user, index) => {
             const rankClass = index < 3 ? `rank-${index + 1}` : 'bg-secondary text-white';
             
             const userItem = document.createElement('div');
@@ -312,7 +311,7 @@
                     <span>${user.name || 'Не указано'}</span>
                     <div class="user-team">${user.team || 'Без команды'}</div>
                 </div>
-                <span class="user-credits-count">${user.creditsCount}</span>
+                <span class="user-credits-count">${user.creditsSum}</span>
             `;
             
             userItem.addEventListener('click', () => {
