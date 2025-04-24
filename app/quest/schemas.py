@@ -14,3 +14,8 @@ class FindAnswersForQuestion(BaseModel):
 
 class FindInsidersForQuestion(BaseModel):
     question_id: int
+
+class MarkInsiderAttendanceRequest(BaseModel):
+    question_id: int
+    command_id: int
+    scanned_user_id: int
