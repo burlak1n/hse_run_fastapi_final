@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from typing import Optional, List
 
 from app.auth.dao import UsersDAO
 from app.auth.models import User
@@ -109,3 +109,31 @@ async def get_current_user(
 #     if current_user.role.id in [3, 4]:
 #         return current_user
 #     raise ForbiddenException
+
+def require_role(allowed_roles: List[str]):
+    """
+    Dependency factory that creates a dependency to ensure the current user 
+    has one of the specified roles.
+    
+    Args:
+        allowed_roles: A list of role names (strings) that are allowed.
+        
+    Returns:
+        An asynchronous dependency function.
+    """
+    async def role_checker(user: User = Depends(get_current_user)) -> User:
+        # get_current_user already returns Optional[User], so we handle None first.
+        if not user:
+            # This case covers no token or invalid session leading to no user.
+            # Raising ForbiddenException as access is denied.
+            raise ForbiddenException 
+        
+        # Now we know user is not None, check the role.
+        if not user.role or user.role.name not in allowed_roles:
+            logger.warning(f"User {user.id} with role '{user.role.name if user.role else 'None'}' tried to access resource requiring roles: {allowed_roles}")
+            raise ForbiddenException
+        
+        logger.debug(f"User {user.id} role '{user.role.name}' authorized for roles: {allowed_roles}")
+        return user
+        
+    return role_checker

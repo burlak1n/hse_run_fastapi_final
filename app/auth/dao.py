@@ -366,55 +366,38 @@ class UsersDAO(BaseDAO):
 
     async def find_all_looking_for_team(self):
         """
-        Находит всех пользователей, которые ищут команду (включая капитанов и обычных пользователей)
+        Находит всех пользователей, которые ищут команду (is_looking_for_friends == True).
         
         Returns:
-            Список пользователей с информацией о командах для капитанов
+            Список пользователей с информацией о команде и статусе капитана (если есть).
         """
         logger.info("Поиск всех пользователей, ищущих команду")
         try:
-            from sqlalchemy import func, and_, union, select, literal, true, false
+            from sqlalchemy import select, outerjoin, case, true, false
             
-            # Запрос для обычных пользователей, которые ищут команду и не состоят в командах
-            users_query = (
-                select(
-                    self.model.id,
-                    self.model.full_name,
-                    self.model.telegram_username,
-                    literal(None).label('team_name'),
-                    literal(False).label('is_captain')
-                )
-                .where(self.model.is_looking_for_friends == True)
-                .where(~self.model.id.in_(
-                    select(CommandsUser.user_id).distinct()
-                ))
-            )
-            
-            # Запрос для капитанов, которые ищут игроков
-            captains_query = (
+            # Запрос для получения всех пользователей, ищущих команду,
+            # с информацией о команде и статусе капитана
+            query = (
                 select(
                     self.model.id,
                     self.model.full_name,
                     self.model.telegram_username,
                     Command.name.label('team_name'),
-                    literal(True).label('is_captain')
+                    case(
+                        (Role.name == "captain", true()),
+                        else_=false()
+                    ).label('is_captain')
                 )
-                .join(CommandsUser, self.model.id == CommandsUser.user_id)
-                .join(Command, CommandsUser.command_id == Command.id)
-                .join(Role, CommandsUser.role_id == Role.id)
-                .where(
-                    and_(
-                        Role.name == "captain",
-                        self.model.is_looking_for_friends == True
-                    )
-                )
+                .select_from(self.model)  # Явно указываем начальную таблицу
+                .outerjoin(CommandsUser, self.model.id == CommandsUser.user_id)
+                .outerjoin(Command, CommandsUser.command_id == Command.id)
+                .outerjoin(Role, CommandsUser.role_id == Role.id)
+                .where(self.model.is_looking_for_friends == True)
+                .order_by(self.model.full_name)
             )
             
-            # Объединяем два запроса
-            combined_query = union(users_query, captains_query).order_by('full_name')
-            
             # Выполняем запрос
-            result = await self._session.execute(combined_query)
+            result = await self._session.execute(query)
             all_users = result.all()
             
             logger.info(f"Найдено {len(all_users)} пользователей, ищущих команду")
