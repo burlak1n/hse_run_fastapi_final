@@ -52,7 +52,7 @@ async def build_block_response(block: Block, command: Command, include_riddles: 
         response['progress'] = round((solved / total) * 100) if total > 0 else 0
     return response
 
-async def get_riddle_data(question: Question, attempt_statuses: dict) -> dict:
+async def get_riddle_data(question: Question, attempt_statuses: dict, session: AsyncSession) -> dict:
     """Формирует данные загадки, используя предзагруженные статусы попыток -- Теперь в utils."""
     # Получаем статусы из словаря
     solved = question.id in attempt_statuses.get("solved", set())
@@ -61,12 +61,38 @@ async def get_riddle_data(question: Question, attempt_statuses: dict) -> dict:
 
     if solved:
         # Для решенных загадок возвращаем полные данные
+        
+        # --- Get insider links (plural) --- 
+        insider_links = [] # Initialize as list
+        try:
+            insider_dao = QuestionInsiderDAO(session)
+            insiders_with_info = await insider_dao.find_by_question_id_with_user_and_info(question.id)
+            
+            if insiders_with_info:
+                for qi in insiders_with_info: # Iterate through all found insiders
+                    insider_user = qi.user
+                    if insider_user and insider_user.insider_info and insider_user.insider_info.geo_link:
+                        insider_links.append(insider_user.insider_info.geo_link) # Add link to list
+                        logger.debug(f"Insider link found for question {question.id}: {insider_user.insider_info.geo_link}")
+                    else:
+                        logger.warning(f"Insider {qi.id} found for question {question.id}, but no user, insider_info, or geo_link.")
+            else:
+                 logger.debug(f"No insiders found for question {question.id}.")
+                 
+            if not insider_links:
+                 logger.debug(f"No valid insider links collected for question {question.id}.")
+                 
+        except Exception as e:
+            logger.error(f"Error fetching insider links for question {question.id}: {e}", exc_info=True)
+        # --- End get insider links ---
+        
         return {
             "id": question.id,
             "title": question.title,
             "text_answered": question.text_answered,
             "image_path_answered": question.image_path_answered,
             "geo_answered": question.geo_answered,
+            "insiderLinks": insider_links, # Use the new list field name
             "has_insider_attempt": has_insider_attempt,
             "has_hint": has_hint and question.hint_path is not None,
             "hint": question.hint_path if has_hint else None
@@ -98,9 +124,9 @@ async def get_riddles_for_block(block_id: int, session: AsyncSession, command_id
     # 3. Получаем все статусы попыток для этих вопросов одним запросом
     attempt_statuses = await attempts_dao.get_attempts_status_for_block(command_id, question_ids)
 
-    # 4. Формируем результат, передавая каждой загадке общий словарь статусов
+    # 4. Формируем результат, передавая каждой загадке общий словарь статусов и сессию
     result = []
     for question in questions:
-        result.append(await get_riddle_data(question, attempt_statuses))
+        result.append(await get_riddle_data(question, attempt_statuses, session))
 
     return result

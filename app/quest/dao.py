@@ -113,6 +113,25 @@ class QuestionInsiderDAO(BaseDAO):
             logger.error(f"Ошибка при поиске инсайдеров для вопроса {question_id}: {e}")
             raise
 
+    async def find_by_question_id_with_user_and_info(self, question_id: int) -> List[QuestionInsider]:
+        """Находит всех инсайдеров для вопроса с загрузкой User и InsiderInfo."""
+        try:
+            query = (
+                select(self.model)
+                .where(self.model.question_id == question_id)
+                .options(
+                    selectinload(self.model.user)
+                    .selectinload(User.insider_info) # Загружаем User, затем InsiderInfo
+                )
+            )
+            result = await self._session.execute(query)
+            records = result.unique().scalars().all()
+            logger.info(f"Найдено {len(records)} инсайдеров с user+info для вопроса {question_id}")
+            return records
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске инсайдеров с user+info для вопроса {question_id}: {e}")
+            raise
+
     async def find_questions_by_insider(self, insider_user_id: int) -> List[Question]:
         """Находит все вопросы (объекты Question), назначенные указанному инсайдеру."""
         try:

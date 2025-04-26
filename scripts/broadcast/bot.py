@@ -81,10 +81,16 @@ class BroadcastState(StatesGroup):
     waiting_for_confirmation = State()
     waiting_for_short_names_message = State()
     waiting_for_short_names_confirmation = State()
+    waiting_for_captains_message = State()
+    waiting_for_captains_confirmation = State()
+    waiting_for_friends_message = State()  # New state for friends broadcast message
+    waiting_for_friends_confirmation = State() # New state for friends broadcast confirmation
 
 
 class ListUsersState(StatesGroup):
     browsing = State()
+    browsing_captains = State()
+    browsing_friends = State() # New state for browsing friends
 
 
 @dp.message(Command("broadcast"))
@@ -109,6 +115,30 @@ async def cmd_broadcast_short_names(message: types.Message, state: FSMContext):
         return
     await message.reply("Пожалуйста, отправьте сообщение для рассылки пользователям с ФИО менее 3 слов.")
     await state.set_state(BroadcastState.waiting_for_short_names_message)
+
+
+@dp.message(Command("broadcast_captains"))
+async def cmd_broadcast_captains(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS_ID:
+        await message.reply("У вас нет прав использовать эту команду.")
+        logger.warning(
+            f"Пользователь {message.from_user.id} попытался использовать /broadcast_captains без прав."
+        )
+        return
+    await message.reply("Пожалуйста, отправьте сообщение для рассылки капитанам команд.")
+    await state.set_state(BroadcastState.waiting_for_captains_message)
+
+
+@dp.message(Command("broadcast_friends"))
+async def cmd_broadcast_friends(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS_ID:
+        await message.reply("У вас нет прав использовать эту команду.")
+        logger.warning(
+            f"Пользователь {message.from_user.id} попытался использовать /broadcast_friends без прав."
+        )
+        return
+    await message.reply("Пожалуйста, отправьте сообщение для рассылки пользователям, ищущим команду.")
+    await state.set_state(BroadcastState.waiting_for_friends_message)
 
 
 @dp.message(StateFilter(BroadcastState.waiting_for_message))
@@ -187,13 +217,28 @@ async def confirm_broadcast(callback_query: types.CallbackQuery, state: FSMConte
 
 
 @dp.callback_query(
-    F.data == "cancel_broadcast", StateFilter(BroadcastState.waiting_for_confirmation)
+    F.data == "cancel_broadcast", 
+    StateFilter(BroadcastState.waiting_for_confirmation, 
+                BroadcastState.waiting_for_short_names_confirmation, 
+                BroadcastState.waiting_for_captains_confirmation,
+                BroadcastState.waiting_for_friends_confirmation)
 )
 async def cancel_broadcast(callback_query: types.CallbackQuery, state: FSMContext):
-    await bot.send_message(callback_query.from_user.id, "Рассылка отменена.")
+    data = await state.get_data() # Get state to determine which broadcast was cancelled
+    current_state = await state.get_state()
+    
+    cancel_message = "Рассылка отменена."
+    if current_state == BroadcastState.waiting_for_short_names_confirmation:
+        cancel_message = "Рассылка пользователям с ФИО менее 3 слов отменена."
+    elif current_state == BroadcastState.waiting_for_captains_confirmation:
+        cancel_message = "Рассылка капитанам отменена."
+    elif current_state == BroadcastState.waiting_for_friends_confirmation:
+        cancel_message = "Рассылка пользователям, ищущим команду, отменена."
+        
+    await bot.send_message(callback_query.from_user.id, cancel_message)
     await state.clear()
     await callback_query.answer()
-    logger.info("Рассылка отменена администратором.")
+    logger.info(f"Рассылка ({current_state}) отменена администратором.")
 
 
 @dp.message(StateFilter(BroadcastState.waiting_for_short_names_message))
@@ -272,14 +317,136 @@ async def confirm_short_names_broadcast(callback_query: types.CallbackQuery, sta
     await state.clear()
 
 
-@dp.callback_query(
-    F.data == "cancel_broadcast", StateFilter(BroadcastState.waiting_for_short_names_confirmation)
-)
-async def cancel_short_names_broadcast(callback_query: types.CallbackQuery, state: FSMContext):
-    await bot.send_message(callback_query.from_user.id, "Рассылка пользователям с ФИО менее 3 слов отменена.")
-    await state.clear()
-    await callback_query.answer()
-    logger.info("Рассылка пользователям с ФИО менее 3 слов отменена администратором.")
+@dp.message(StateFilter(BroadcastState.waiting_for_captains_message))
+async def captains_message_handler(message: types.Message, state: FSMContext):
+    await state.update_data(broadcast_message=message)
+
+    # Получаем количество капитанов для рассылки
+    captains = await get_captains_for_broadcast()
+    total_captains = len(captains)
+
+    if total_captains == 0:
+        await message.answer("В базе данных нет капитанов для рассылки.")
+        await state.clear()
+        return
+
+    # Создаем инлайн-клавиатуру с кнопками подтверждения
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Подтвердить", callback_data="confirm_captains_broadcast"
+                ),
+                InlineKeyboardButton(text="Отменить", callback_data="cancel_broadcast"), # Can reuse cancel
+            ]
+        ]
+    )
+
+    # Сообщение с количеством получателей
+    confirmation_text = f"Сообщение будет отправлено {total_captains} капитанам."
+
+    if message.content_type == "text":
+        await message.answer(
+            confirmation_text + "Вы хотите отправить следующее текстовое сообщение капитанам:",
+            reply_markup=keyboard,
+        )
+        await message.answer(message.text, disable_web_page_preview=True)
+    elif message.content_type in ["photo", "document", "video", "audio"]:
+        await message.answer(
+            confirmation_text + f"Вы хотите отправить следующее {message.content_type} сообщение капитанам:",
+            reply_markup=keyboard,
+        )
+        # Отправка предпросмотра медиа
+        if message.content_type == "photo":
+            await message.answer_photo(
+                message.photo[-1].file_id, caption=message.caption or ""
+            )
+        elif message.content_type == "document":
+            await message.answer_document(
+                message.document.file_id, caption=message.caption or ""
+            )
+        elif message.content_type == "video":
+            await message.answer_video(
+                message.video.file_id, caption=message.caption or ""
+            )
+        elif message.content_type == "audio":
+            await message.answer_audio(
+                message.audio.file_id, caption=message.caption or ""
+            )
+    else:
+        await message.answer(
+            "Этот тип сообщений не поддерживается для рассылки.", reply_markup=keyboard
+        )
+        await state.finish()
+        return
+
+    await state.set_state(BroadcastState.waiting_for_captains_confirmation)
+
+
+@dp.message(StateFilter(BroadcastState.waiting_for_friends_message))
+async def friends_message_handler(message: types.Message, state: FSMContext):
+    await state.update_data(broadcast_message=message)
+
+    # Получаем количество пользователей, ищущих команду
+    friends = await get_friends_for_broadcast()
+    total_friends = len(friends)
+
+    if total_friends == 0:
+        await message.answer("В базе данных нет пользователей, ищущих команду.")
+        await state.clear()
+        return
+
+    # Создаем инлайн-клавиатуру с кнопками подтверждения
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Подтвердить", callback_data="confirm_friends_broadcast"
+                ),
+                InlineKeyboardButton(text="Отменить", callback_data="cancel_broadcast"),
+            ]
+        ]
+    )
+
+    # Сообщение с количеством получателей
+    confirmation_text = f"Сообщение будет отправлено {total_friends} пользователям, ищущим команду."
+
+    if message.content_type == "text":
+        await message.answer(
+            confirmation_text + "\n\nВы хотите отправить следующее текстовое сообщение:",
+            reply_markup=keyboard,
+        )
+        await message.answer(message.text, disable_web_page_preview=True)
+    elif message.content_type in ["photo", "document", "video", "audio"]:
+        await message.answer(
+            confirmation_text + f"\n\nВы хотите отправить следующее {message.content_type} сообщение:",
+            reply_markup=keyboard,
+        )
+        # Отправка предпросмотра медиа
+        if message.content_type == "photo":
+            await message.answer_photo(
+                message.photo[-1].file_id, caption=message.caption or ""
+            )
+        elif message.content_type == "document":
+            await message.answer_document(
+                message.document.file_id, caption=message.caption or ""
+            )
+        elif message.content_type == "video":
+            await message.answer_video(
+                message.video.file_id, caption=message.caption or ""
+            )
+        elif message.content_type == "audio":
+            await message.answer_audio(
+                message.audio.file_id, caption=message.caption or ""
+            )
+    else:
+        await message.answer(
+            "Этот тип сообщений не поддерживается для рассылки.", reply_markup=keyboard
+        )
+        await state.finish()
+        return
+
+    await state.set_state(BroadcastState.waiting_for_friends_confirmation)
 
 
 # Общая функция для получения списка пользователей для рассылки
@@ -293,7 +460,8 @@ async def get_users_for_broadcast(filter_short_names=False):
     Returns:
         list: Список кортежей (telegram_id, full_name)
     """
-    async with aiosqlite.connect("backend/data/db.sqlite3") as db:
+    db_path = "/projects/hse_run_full/backend/data/db.sqlite3"  # Use absolute path
+    async with aiosqlite.connect(db_path) as db:
         async with db.execute("SELECT telegram_id, full_name FROM users") as cursor:
             users = await cursor.fetchall()
     
@@ -302,6 +470,61 @@ async def get_users_for_broadcast(filter_short_names=False):
         return [(user_id, full_name) for user_id, full_name in users if len(full_name.split()) < 3]
     
     return users
+
+
+# Функция для получения списка капитанов для рассылки
+async def get_captains_for_broadcast():
+    """
+    Получает список пользователей, являющихся капитанами.
+    
+    Returns:
+        list: Список кортежей (telegram_id, full_name)
+    """
+    db_path = "/projects/hse_run_full/backend/data/db.sqlite3"
+    async with aiosqlite.connect(db_path) as db:
+        # Запрос для получения telegram_id и full_name пользователей, которые являются капитанами
+        # Присоединяем users к commandsuser по user_id
+        # Присоединяем commandsuser к roleusercommands по role_id
+        # Фильтруем по имени роли 'captain'
+        query = """
+            SELECT DISTINCT u.telegram_id, u.full_name
+            FROM users u
+            JOIN commandsusers cu ON u.id = cu.user_id
+            JOIN roleusercommands ruc ON cu.role_id = ruc.id
+            WHERE ruc.name = 'captain'
+        """
+        async with db.execute(query) as cursor:
+            captains = await cursor.fetchall()
+            
+    if not captains:
+        logger.info("Капитаны не найдены в базе данных.")
+    else:
+        logger.info(f"Найдено {len(captains)} капитанов.")
+        
+    return captains
+
+
+# Функция для получения списка пользователей, ищущих команду
+async def get_friends_for_broadcast():
+    """
+    Получает список пользователей с is_looking_for_friends = 1.
+    
+    Returns:
+        list: Список кортежей (telegram_id, full_name)
+    """
+    db_path = "/projects/hse_run_full/backend/data/db.sqlite3"
+    async with aiosqlite.connect(db_path) as db:
+        # Выбираем пользователей, у которых is_looking_for_friends = 1
+        query = "SELECT telegram_id, full_name FROM users WHERE is_looking_for_friends = 1"
+        async with db.execute(query) as cursor:
+            friends = await cursor.fetchall()
+            
+    if not friends:
+        logger.info("Пользователи, ищущие команду, не найдены.")
+    else:
+        logger.info(f"Найдено {len(friends)} пользователей, ищущих команду.")
+        
+    return friends
 
 
 # Функция для рассылки сообщений всем пользователям
@@ -396,7 +619,8 @@ async def broadcast_to_all_users(message: types.Message, admin_id=None):
 
 # Функция для удаления пользователя из базы данных
 async def remove_user(user_id):
-    async with aiosqlite.connect("backend/data/db.sqlite3") as db:
+    db_path = "/projects/hse_run_full/backend/data/db.sqlite3"  # Use absolute path
+    async with aiosqlite.connect(db_path) as db:
         await db.execute("DELETE FROM users WHERE telegram_id = ?", (user_id,))
         await db.commit()
     logger.info(f"Пользователь {user_id} удален из базы данных.")
@@ -512,7 +736,65 @@ async def cmd_list_users(message: types.Message, state: FSMContext):
     await state.set_state(ListUsersState.browsing)
 
 
-async def show_users_page(message: types.Message, state: FSMContext):
+@dp.message(Command("list_captains"))
+async def cmd_list_captains(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS_ID:
+        await message.reply("У вас нет прав использовать эту команду.")
+        logger.warning(
+            f"Пользователь {message.from_user.id} попытался использовать /list_captains без прав."
+        )
+        return
+
+    # Получаем список капитанов
+    captains = await get_captains_for_broadcast()
+
+    if not captains:
+        await message.reply("В базе данных нет капитанов.")
+        return
+
+    # Подготовка данных для пагинации
+    captains_per_page = 10
+    total_captains = len(captains)
+    total_pages = (total_captains + captains_per_page - 1) // captains_per_page
+
+    # Сохраняем данные в состоянии
+    await state.update_data(captains=captains, page=0, captains_per_page=captains_per_page, total_pages=total_pages)
+    
+    # Показываем первую страницу
+    await show_captains_page(message, state)
+    await state.set_state(ListUsersState.browsing_captains) # Используем новое состояние
+
+
+@dp.message(Command("list_friends"))
+async def cmd_list_friends(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS_ID:
+        await message.reply("У вас нет прав использовать эту команду.")
+        logger.warning(
+            f"Пользователь {message.from_user.id} попытался использовать /list_friends без прав."
+        )
+        return
+
+    # Получаем список пользователей, ищущих команду
+    friends = await get_friends_for_broadcast()
+
+    if not friends:
+        await message.reply("В базе данных нет пользователей, ищущих команду.")
+        return
+
+    # Подготовка данных для пагинации
+    friends_per_page = 10
+    total_friends = len(friends)
+    total_pages = (total_friends + friends_per_page - 1) // friends_per_page
+
+    # Сохраняем данные в состоянии
+    await state.update_data(friends=friends, page=0, friends_per_page=friends_per_page, total_pages=total_pages)
+    
+    # Показываем первую страницу
+    await show_friends_page(message, state)
+    await state.set_state(ListUsersState.browsing_friends) # Используем новое состояние
+
+
+async def show_users_page(message: types.Message, state: FSMContext, callback_query: types.CallbackQuery = None):
     data = await state.get_data()
     users = data["users"]
     page = data["page"]
@@ -556,6 +838,12 @@ async def show_users_page(message: types.Message, state: FSMContext):
     
     try:
         if hasattr(message, "message_id"):
+            # Check if message content needs updating
+            if message.text == text and message.reply_markup == reply_markup:
+                # If the callback query is available, answer it
+                if callback_query:
+                    await callback_query.answer() 
+                return
             # Это колбэк-запрос, редактируем сообщение
             await bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, reply_markup=reply_markup)
         else:
@@ -575,9 +863,9 @@ async def prev_page(callback_query: types.CallbackQuery, state: FSMContext):
     
     if page > 0:
         await state.update_data(page=page - 1)
-        await show_users_page(callback_query.message, state)
-    
-    await callback_query.answer()
+        await show_users_page(callback_query.message, state, callback_query)
+    else:
+        await callback_query.answer() # Answer if no change
 
 
 @dp.callback_query(F.data == "next_page", StateFilter(ListUsersState.browsing))
@@ -588,9 +876,9 @@ async def next_page(callback_query: types.CallbackQuery, state: FSMContext):
     
     if page < total_pages - 1:
         await state.update_data(page=page + 1)
-        await show_users_page(callback_query.message, state)
-    
-    await callback_query.answer()
+        await show_users_page(callback_query.message, state, callback_query)
+    else:
+        await callback_query.answer() # Answer if no change
 
 
 @dp.callback_query(F.data == "show_short_names", StateFilter(ListUsersState.browsing))
@@ -603,20 +891,380 @@ async def show_short_names(callback_query: types.CallbackQuery, state: FSMContex
         return
     
     # Обновляем данные состояния
+    data = await state.get_data()
+    current_users = data.get('users')
+    current_view_mode = data.get('view_mode')
+
+    # Проверяем, не показываем ли мы уже этот список
+    if current_view_mode == "short_names" and current_users == short_name_users:
+        await callback_query.answer("Уже показаны пользователи с ФИО < 3 слов")
+        return
+        
     await state.update_data(
         users=short_name_users, 
         page=0, 
         users_per_page=10, 
         total_pages=(len(short_name_users) + 9) // 10,
-        view_mode="short_names"
+        view_mode="short_names" # Keep track of view mode
     )
     
-    await show_users_page(callback_query.message, state)
+    await show_users_page(callback_query.message, state, callback_query)
     await callback_query.answer("Показаны пользователи с ФИО менее 3 слов")
 
 
 @dp.callback_query(F.data == "close_list", StateFilter(ListUsersState.browsing))
 async def close_list(callback_query: types.CallbackQuery, state: FSMContext):
+    await bot.delete_message(callback_query.message.chat.id, callback_query.message.message_id)
+    await state.clear()
+    await callback_query.answer()
+
+
+@dp.callback_query(
+    F.data == "confirm_captains_broadcast", 
+    StateFilter(BroadcastState.waiting_for_captains_confirmation)
+)
+async def confirm_captains_broadcast(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    broadcast_message = data.get("broadcast_message")
+
+    await callback_query.answer("Рассылка капитанам началась. Это может занять некоторое время.")
+    await bot.send_message(callback_query.from_user.id, "Рассылка капитанам запущена.")
+
+    # Запускаем рассылку в отдельной задаче
+    asyncio.create_task(broadcast_to_captains(broadcast_message, callback_query.from_user.id))
+    await state.clear()
+
+
+# Функция для рассылки сообщений капитанам
+async def broadcast_to_captains(message: types.Message, admin_id: int):
+    captains = await get_captains_for_broadcast()
+    
+    if not captains:
+        logger.info("Нет капитанов для рассылки.")
+        await bot.send_message(admin_id, "Нет капитанов для рассылки.")
+        return
+
+    captain_ids = [captain[0] for captain in captains]
+    total_captains = len(captain_ids)
+    failed_captains = []
+    
+    logger.info(f"Начинаем рассылку сообщений {total_captains} капитанам.")
+    await bot.send_message(admin_id, f"Начата рассылка {total_captains} капитанам.")
+    print(f"Начинаем рассылку сообщений {total_captains} капитанам.")
+
+    semaphore = asyncio.Semaphore(10) # Ограничение одновременных отправок
+
+    async def send_message_to_captain(user_id):
+        async with semaphore:
+            try:
+                if message.content_type == "text":
+                    await bot.send_message(
+                        user_id, message.text, disable_web_page_preview=True
+                    )
+                elif message.content_type == "photo":
+                    await bot.send_photo(
+                        user_id,
+                        message.photo[-1].file_id,
+                        caption=message.caption or "",
+                    )
+                elif message.content_type == "document":
+                    await bot.send_document(
+                        user_id, message.document.file_id, caption=message.caption or ""
+                    )
+                elif message.content_type == "video":
+                    await bot.send_video(
+                        user_id, message.video.file_id, caption=message.caption or ""
+                    )
+                elif message.content_type == "audio":
+                    await bot.send_audio(
+                        user_id, message.audio.file_id, caption=message.caption or ""
+                    )
+                else:
+                    logger.warning(
+                        f"Не поддерживаемый тип сообщения для рассылки капитану {user_id}."
+                    )
+                    failed_captains.append((user_id, "Неподдерживаемый тип сообщения"))
+            except Exception as e:
+                error_msg = f"Не удалось отправить сообщение капитану {user_id}: {e}"
+                logger.error(error_msg)
+                print(error_msg)
+                failed_captains.append((user_id, str(e)))
+
+    tasks = [send_message_to_captain(user_id) for user_id in captain_ids]
+    await asyncio.gather(*tasks)
+
+    success_count = total_captains - len(failed_captains)
+    completion_msg = f"Рассылка капитанам завершена. Успешно: {success_count}/{total_captains}."
+    logger.info(completion_msg)
+    await bot.send_message(admin_id, completion_msg)
+    print(completion_msg)
+    
+    if failed_captains:
+        failed_msg = "Список капитанов, которым НЕ было отправлено сообщение:"
+        for i, (user_id, reason) in enumerate(failed_captains[:20], 1):
+            failed_msg += f"{i}. ID: {user_id}, причина: {reason}"
+            
+        if len(failed_captains) > 20:
+            failed_msg += f"\n... и еще {len(failed_captains) - 20} капитанов"
+            
+        await bot.send_message(admin_id, failed_msg)
+        print("Список капитанов, которым НЕ было отправлено сообщение:")
+        for user_id, reason in failed_captains:
+            print(f"ID: {user_id}, причина: {reason}")
+
+
+async def show_captains_page(message: types.Message, state: FSMContext, callback_query: types.CallbackQuery = None):
+    data = await state.get_data()
+    captains = data["captains"]
+    page = data["page"]
+    captains_per_page = data["captains_per_page"]
+    total_pages = data["total_pages"]
+    
+    start_idx = page * captains_per_page
+    end_idx = min((page + 1) * captains_per_page, len(captains))
+    
+    captain_list = []
+    for i, (captain_id, full_name) in enumerate(captains[start_idx:end_idx], start=start_idx + 1):
+        captain_list.append(f"{i}. {full_name} (ID: {captain_id})")
+    
+    captains_text = "\n".join(captain_list)
+    
+    keyboard = []
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data="prev_captain_page"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="Вперед ▶️", callback_data="next_captain_page"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+        
+    keyboard.append([InlineKeyboardButton(text="Закрыть", callback_data="close_captain_list")])
+    
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    text = f"Капитаны команд (всего: {len(captains)}):\n\n{captains_text}\n\nСтраница {page + 1} из {total_pages}"
+    
+    try:
+        if hasattr(message, "message_id"):
+            # Check if message content needs updating
+            if message.text == text and message.reply_markup == reply_markup:
+                # If the callback query is available, answer it
+                if callback_query:
+                    await callback_query.answer() 
+                return
+            # Это колбэк-запрос, редактируем сообщение
+            await bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, reply_markup=reply_markup)
+        else:
+            # Это новое сообщение
+            await message.answer(text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке/редактировании списка капитанов: {e}")
+        if hasattr(message, "chat"):
+             await bot.send_message(message.chat.id, text, reply_markup=reply_markup)
+
+
+@dp.callback_query(F.data == "prev_captain_page", StateFilter(ListUsersState.browsing_captains))
+async def prev_captain_page(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data["page"]
+    
+    if page > 0:
+        await state.update_data(page=page - 1)
+        await show_captains_page(callback_query.message, state, callback_query)
+    else:
+        await callback_query.answer() # Answer if no change
+
+
+@dp.callback_query(F.data == "next_captain_page", StateFilter(ListUsersState.browsing_captains))
+async def next_captain_page(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data["page"]
+    total_pages = data["total_pages"]
+    
+    if page < total_pages - 1:
+        await state.update_data(page=page + 1)
+        await show_captains_page(callback_query.message, state, callback_query)
+    else:
+        await callback_query.answer() # Answer if no change
+
+
+@dp.callback_query(F.data == "close_captain_list", StateFilter(ListUsersState.browsing_captains))
+async def close_captain_list(callback_query: types.CallbackQuery, state: FSMContext):
+    await bot.delete_message(callback_query.message.chat.id, callback_query.message.message_id)
+    await state.clear()
+    await callback_query.answer()
+
+
+@dp.callback_query(
+    F.data == "confirm_friends_broadcast",
+    StateFilter(BroadcastState.waiting_for_friends_confirmation)
+)
+async def confirm_friends_broadcast(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    broadcast_message = data.get("broadcast_message")
+
+    await callback_query.answer("Рассылка ищущим команду началась. Это может занять некоторое время.")
+    await bot.send_message(callback_query.from_user.id, "Рассылка пользователям, ищущим команду, запущена.")
+
+    # Запускаем рассылку в отдельной задаче
+    asyncio.create_task(broadcast_to_friends(broadcast_message, callback_query.from_user.id))
+    await state.clear()
+
+
+# Функция для рассылки сообщений пользователям, ищущим команду
+async def broadcast_to_friends(message: types.Message, admin_id: int):
+    friends = await get_friends_for_broadcast()
+    
+    if not friends:
+        logger.info("Нет пользователей, ищущих команду, для рассылки.")
+        await bot.send_message(admin_id, "Нет пользователей, ищущих команду, для рассылки.")
+        return
+
+    friend_ids = [friend[0] for friend in friends]
+    total_friends = len(friend_ids)
+    failed_friends = []
+    
+    logger.info(f"Начинаем рассылку сообщений {total_friends} пользователям, ищущим команду.")
+    await bot.send_message(admin_id, f"Начата рассылка {total_friends} пользователям, ищущим команду.")
+    print(f"Начинаем рассылку сообщений {total_friends} пользователям, ищущим команду.")
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def send_message_to_friend(user_id):
+        async with semaphore:
+            try:
+                # Копирование логики отправки из broadcast_to_all_users
+                if message.content_type == "text":
+                    await bot.send_message(
+                        user_id, message.text, disable_web_page_preview=True
+                    )
+                elif message.content_type == "photo":
+                    await bot.send_photo(
+                        user_id,
+                        message.photo[-1].file_id,
+                        caption=message.caption or "",
+                    )
+                elif message.content_type == "document":
+                    await bot.send_document(
+                        user_id, message.document.file_id, caption=message.caption or ""
+                    )
+                elif message.content_type == "video":
+                    await bot.send_video(
+                        user_id, message.video.file_id, caption=message.caption or ""
+                    )
+                elif message.content_type == "audio":
+                    await bot.send_audio(
+                        user_id, message.audio.file_id, caption=message.caption or ""
+                    )
+                else:
+                    logger.warning(
+                        f"Не поддерживаемый тип сообщения для рассылки пользователю {user_id} (ищет команду)."
+                    )
+                    failed_friends.append((user_id, "Неподдерживаемый тип сообщения"))
+            except Exception as e:
+                error_msg = f"Не удалось отправить сообщение пользователю {user_id} (ищет команду): {e}"
+                logger.error(error_msg)
+                print(error_msg)
+                failed_friends.append((user_id, str(e)))
+
+    tasks = [send_message_to_friend(user_id) for user_id in friend_ids]
+    await asyncio.gather(*tasks)
+
+    success_count = total_friends - len(failed_friends)
+    completion_msg = f"Рассылка пользователям, ищущим команду, завершена. Успешно: {success_count}/{total_friends}."
+    logger.info(completion_msg)
+    await bot.send_message(admin_id, completion_msg)
+    print(completion_msg)
+    
+    if failed_friends:
+        failed_msg = "Список пользователей (ищут команду), которым НЕ было отправлено сообщение:"
+        for i, (user_id, reason) in enumerate(failed_friends[:20], 1):
+            failed_msg += f"\n{i}. ID: {user_id}, причина: {reason}"
+            
+        if len(failed_friends) > 20:
+            failed_msg += f"\n... и еще {len(failed_friends) - 20} пользователей"
+            
+        await bot.send_message(admin_id, failed_msg)
+        print("\nСписок пользователей (ищут команду), которым НЕ было отправлено сообщение:")
+        for user_id, reason in failed_friends:
+            print(f"ID: {user_id}, причина: {reason}")
+
+
+async def show_friends_page(message: types.Message, state: FSMContext, callback_query: types.CallbackQuery = None):
+    data = await state.get_data()
+    friends = data["friends"]
+    page = data["page"]
+    friends_per_page = data["friends_per_page"]
+    total_pages = data["total_pages"]
+    
+    start_idx = page * friends_per_page
+    end_idx = min((page + 1) * friends_per_page, len(friends))
+    
+    friend_list = []
+    for i, (friend_id, full_name) in enumerate(friends[start_idx:end_idx], start=start_idx + 1):
+        friend_list.append(f"{i}. {full_name} (ID: {friend_id})")
+    
+    friends_text = "\n".join(friend_list)
+    
+    keyboard = []
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data="prev_friend_page"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="Вперед ▶️", callback_data="next_friend_page"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+        
+    keyboard.append([InlineKeyboardButton(text="Закрыть", callback_data="close_friend_list")])
+    
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    text = f"Пользователи, ищущие команду (всего: {len(friends)}):\n\n{friends_text}\n\nСтраница {page + 1} из {total_pages}"
+    
+    try:
+        if hasattr(message, "message_id"):
+            if message.text == text and message.reply_markup == reply_markup:
+                if callback_query:
+                    await callback_query.answer()
+                return
+            await bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, reply_markup=reply_markup)
+        else:
+            await message.answer(text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке/редактировании списка ищущих команду: {e}")
+        if hasattr(message, "chat"):
+             await bot.send_message(message.chat.id, text, reply_markup=reply_markup)
+
+
+@dp.callback_query(F.data == "prev_friend_page", StateFilter(ListUsersState.browsing_friends))
+async def prev_friend_page(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data["page"]
+    
+    if page > 0:
+        await state.update_data(page=page - 1)
+        await show_friends_page(callback_query.message, state, callback_query)
+    else:
+        await callback_query.answer()
+
+
+@dp.callback_query(F.data == "next_friend_page", StateFilter(ListUsersState.browsing_friends))
+async def next_friend_page(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data["page"]
+    total_pages = data["total_pages"]
+    
+    if page < total_pages - 1:
+        await state.update_data(page=page + 1)
+        await show_friends_page(callback_query.message, state, callback_query)
+    else:
+        await callback_query.answer()
+
+
+@dp.callback_query(F.data == "close_friend_list", StateFilter(ListUsersState.browsing_friends))
+async def close_friend_list(callback_query: types.CallbackQuery, state: FSMContext):
     await bot.delete_message(callback_query.message.chat.id, callback_query.message.message_id)
     await state.clear()
     await callback_query.answer()

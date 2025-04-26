@@ -42,6 +42,7 @@ class RiddleDetail(RiddleBase):
     text_answered: Optional[str] = None
     image_path_answered: Optional[str] = None
     geo_answered: Optional[str] = None
+    insiderLinks: Optional[List[str]] = None
     has_insider_attempt: bool
     has_hint: bool
     hint: Optional[str] = None

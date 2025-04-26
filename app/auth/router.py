@@ -192,14 +192,21 @@ async def get_me(
         "commands": commands_info,
         "is_looking_for_friends": user.is_looking_for_friends
     }
-    
-    # Добавляем информацию инсайдера, если пользователь - инсайдер
-    if user.role and user.role.name == "insider" and user.insider_info:
+
+    # Добавляем информацию для инсайдера или СтС, если есть запись в insiders_info
+    if user.role and user.role.name in ["insider", "ctc"] and user.insider_info:
+        student_organization = None
+        if user.role.name == "insider":
+            student_organization = user.insider_info.student_organization
+        elif user.role.name == "ctc":
+            student_organization = "СтС" # Фиксированное значение для СтС
+
+        # Формируем общий блок, который на фронтенде будет использоваться как insider_info
         user_info["insider_info"] = {
-            "student_organization": user.insider_info.student_organization,
-            "geo_link": user.insider_info.geo_link
+            "student_organization": student_organization,
+            "geo_link": user.insider_info.geo_link # Берем из общей таблицы
         }
-    
+
     return user_info
 
 
@@ -863,16 +870,29 @@ async def update_profile(
         
         # Обновляем ФИО пользователя
         await users_dao.update_full_name(user.id, request.full_name)
-        
-        # Если пользователь - инсайдер и есть дополнительные поля, обновляем их
-        if user.role and user.role.name == "insider" and (request.student_organization is not None or request.geo_link is not None):
-            insiders_dao = InsidersInfoDAO(session)
-            await insiders_dao.create_or_update(
-                user_id=user.id,
-                student_organization=request.student_organization,
-                geo_link=request.geo_link
-            )
-        
+
+        # Если пользователь - инсайдер ИЛИ ctc, обрабатываем доп. поля
+        if user.role and user.role.name in ["insider", "ctc"]:
+            student_organization_to_save = None
+            geo_link_to_save = request.geo_link # Geo link берем из запроса для обеих ролей
+
+            if user.role.name == "insider":
+                # Для инсайдера берем СО из запроса
+                student_organization_to_save = request.student_organization
+            elif user.role.name == "ctc":
+                # Для СтС устанавливаем СО по умолчанию
+                student_organization_to_save = "СтС"
+
+            # Обновляем или создаем запись в insiders_info
+            # Проверяем, что хотя бы одно из полей передано (или для СтС есть geo_link)
+            if student_organization_to_save is not None or geo_link_to_save is not None:
+                 insiders_dao = InsidersInfoDAO(session)
+                 await insiders_dao.create_or_update(
+                     user_id=user.id,
+                     student_organization=student_organization_to_save,
+                     geo_link=geo_link_to_save
+                 )
+
         return JSONResponse(
             status_code=200,
             content={"message": "Профиль успешно обновлен"}

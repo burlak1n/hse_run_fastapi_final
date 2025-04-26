@@ -73,10 +73,20 @@ class EventAdmin(ModelView, model=Event):
 
 
 class CommandAdmin(ModelView, model=Command):
-    column_list = [Command.id, Command.name, Command.users]
+    column_list = [Command.id, Command.name, Command.users, Command.language]
     form_columns = [Command.name, Command.users]
     column_searchable_list = ["name"]
-    column_sortable_list = [Command.id, Command.name]
+    column_sortable_list = [Command.id, Command.name, "language"]
+    
+    def sort_query(self, stmt: Select, request: Request) -> Select:
+        sort_by = request.query_params.get("sortBy")
+        sort_order = request.query_params.get("sort")
+        if sort_by == "language":
+            if sort_order == "desc":
+                stmt = stmt.join(Language).order_by(Language.name.desc())
+            else:
+                stmt = stmt.join(Language).order_by(Language.name.asc())
+        return super().sort_query(stmt, request)
 
 class BlockAdmin(ModelView, model=Block):
     column_list = [Block.id, Block.title, Block.language]

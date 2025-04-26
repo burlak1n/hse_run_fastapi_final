@@ -141,7 +141,7 @@ async def get_commands_stats(
 async def get_insider_tasks_status(
     command_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    scanner_user: User = Depends(require_role(["insider", "organizer"]))
+    scanner_user: User = Depends(require_role(["insider", "organizer", "ctc"]))
 ):
     """
     Возвращает список загадок, назначенных текущему инсайдеру,
@@ -275,7 +275,7 @@ async def check_answer(
                 logger.error(f"Question {riddle_id} disappeared after commit in check_answer for command {command.id}")
             else: 
                 attempt_statuses = await attempts_dao.get_attempts_status_for_block(command.id, [question.id])
-                updated_riddle_data = await get_riddle_data(question, attempt_statuses)
+                updated_riddle_data = await get_riddle_data(question, attempt_statuses, session)
 
         return CheckAnswerResponse(
             ok=True,
