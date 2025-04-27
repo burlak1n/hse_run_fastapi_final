@@ -151,23 +151,42 @@ async def get_insider_tasks_status(
     logger.info(f"Инсайдер {scanner_user.id} запрашивает статус своих задач для команды {command_id} (оптимизированный)")
     
     try:
+        commands_dao = CommandsDAO(session)
+        command = await commands_dao.find_one_or_none_by_id(command_id)
+        if not command:
+            logger.warning(f"Команда с ID {command_id} не найдена при запросе статуса задач инсайдером {scanner_user.id}")
+            return GetInsiderTasksResponse(ok=True, tasks=[])
+        if not command.language_id:
+            logger.error(f"У команды {command_id} не установлен язык.")
+            raise InternalServerErrorException(detail="Command language is not set.")
+        command_language_id = command.language_id
+
         q_insider_dao = QuestionInsiderDAO(session)
         attempts_dao = AttemptsDAO(session)
         
         assigned_questions = await q_insider_dao.find_questions_by_insider(scanner_user.id)
         
-        if not assigned_questions:
-            logger.info(f"Инсайдеру {scanner_user.id} не назначено ни одной загадки")
+        # --- Добавлено: Фильтрация по языку команды ---
+        filtered_questions = [
+            q for q in assigned_questions 
+            if q.block.language_id == command_language_id
+        ]
+        # --- Конец добавленного ---
+
+        if not filtered_questions: # --- Изменено: проверка отфильтрованного списка ---
+            logger.info(f"Инсайдеру {scanner_user.id} не назначено ни одной загадки на языке команды {command_id}")
             return GetInsiderTasksResponse(ok=True, tasks=[])
         
-        assigned_question_ids = [q.id for q in assigned_questions]
+        # --- Изменено: использование отфильтрованного списка ---
+        assigned_question_ids = [q.id for q in filtered_questions]
 
         attempt_statuses = await attempts_dao.get_attempts_status_for_block(command_id, assigned_question_ids)
         solved_ids = attempt_statuses.get("solved", set())
         insider_visited_ids = attempt_statuses.get("insider_visited", set())
 
         tasks_status = []
-        for question in assigned_questions:
+        # --- Изменено: итерация по отфильтрованному списку ---
+        for question in filtered_questions:
             is_attendance_marked = question.id in insider_visited_ids
             is_solved_by_team = question.id in solved_ids
 
@@ -411,7 +430,7 @@ async def get_riddle_insiders(
 async def mark_insider_attendance(
     request: MarkInsiderAttendanceRequest,
     session: AsyncSession = Depends(get_session_with_commit),
-    scanner_user: User = Depends(require_role(["insider", "organizer"]))
+    scanner_user: User = Depends(require_role(["insider", "organizer", "ctc"]))
 ):
     """
     Отмечает посещение локации (загадки) инсайдером для указанной команды.

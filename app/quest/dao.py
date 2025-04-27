@@ -139,7 +139,7 @@ class QuestionInsiderDAO(BaseDAO):
                 select(Question)
                 .join(QuestionInsider, QuestionInsider.question_id == Question.id)
                 .where(QuestionInsider.user_id == insider_user_id)
-                .options(selectinload(Question.answers)) # Пример загрузки связей, если нужно
+                .options(selectinload(Question.answers), selectinload(Question.block))
             )
             result = await self._session.execute(query)
             records = result.scalars().unique().all()

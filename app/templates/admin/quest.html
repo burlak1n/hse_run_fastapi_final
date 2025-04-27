@@ -1,0 +1,17 @@
+{% extends "admin/base.html" %}
+{% from "admin/components/quest_statistics.html" import render_quest_statistics_component, quest_statistics_scripts with context %}
+
+{% block title %}Статистика Квеста - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        {{ render_quest_statistics_component() }}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{{ quest_statistics_scripts() }}
+{% endblock %} 

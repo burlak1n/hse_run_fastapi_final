@@ -1,0 +1,1054 @@
+{% macro render_quest_statistics_component() %}
+    <div class="card-header">
+        <h5 class="mb-0">Статистика Квеста <span id="last-update-time-quest" class="badge badge-secondary ml-2">Обновление...</span></h5>
+    </div>
+    <div class="card-body">
+        <div id="quest-stats-content">
+            <!-- Перемещенный блок графика успешности и уникальных попыток -->
+            <div class="row">
+                <div class="col-md-6"> 
+                    <div class="card bg-light mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">Успешность ответов на вопросы (%)</h5>
+                            <div class="chart-container">
+                                <canvas id="questionSuccessRateChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6"> 
+                    <div class="card bg-light mb-3">
+                        <div class="card-body" style="max-height: 300px; overflow-y: auto;"> 
+                            <h5 class="card-title">Уникальные ответы на загадки (все пользователи)</h5>
+                            <div id="all-unique-riddle-attempts"></div> 
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Конец блока -->
+            <div class="row">
+                <div class="col-md-6"> 
+                    <div class="card bg-light mb-3"> 
+                        <div class="card-body"> 
+                            <h5 class="card-title">Топ пользователей по баллам:</h5>
+                            <div id="top-users-by-attempts-list" class="list-group mt-3"></div> 
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6" id="team-columns-container"> 
+                    <div class="card bg-light mb-3"> 
+                        <div class="card-body"> 
+                            <h5 class="card-title">Топ команд (RU)</h5>
+                            <div id="top-teams-ru-by-score-list" class="list-group mt-3"></div> 
+                        </div>
+                    </div>
+                    <div class="card bg-light mb-3"> 
+                        <div class="card-body"> 
+                            <h5 class="card-title">Топ команд (EN)</h5>
+                            <div id="top-teams-en-by-score-list" class="list-group mt-3"></div> 
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Добавляем модальное окно для отображения попыток -->
+            <div class="modal fade" id="userAttemptsModal" tabindex="-1" role="dialog" aria-labelledby="userAttemptsModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="userAttemptsModalLabel">Попытки пользователя</h5>
+                        </div>
+                        <div class="modal-body">
+                            <div id="attempts-content">
+                                <table id="userAttemptsTable" class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Время</th>
+                                            <th>Вопрос</th>
+                                            <th>Текст попытки</th>
+                                            <th>Тип</th>
+                                            <th>Результат</th>
+                                            <th>Баллы</th>
+                                            <th>Монеты</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            <!-- Добавляем Canvas для графика активности пользователя -->
+                            <div class="mt-4">
+                                <h5>Временная шкала активности</h5>
+                                <div class="chart-container" style="height: 150px;"> <!-- Уменьшаем высоту -->
+                                    <canvas id="userActivityTimelineChart"></canvas>
+                                </div>
+                            </div>
+                            <!-- Добавляем div для карты -->
+                            <div id="user-attempts-map" style="height: 400px; width: 100%; margin-top: 20px;"></div>
+                        </div>
+                        <div class="modal-footer">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Новое модальное окно для карты команды -->
+            <div class="modal fade" id="teamMapModal" tabindex="-1" role="dialog" aria-labelledby="teamMapModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="teamMapModalLabel">Карта прогресса команды</h5>
+                        </div>
+                        <div class="modal-body">
+                            <!-- Контейнер для карты команды -->
+                            <div id="team-map" style="height: 500px; width: 100%;"></div>
+                        </div>
+                        <div class="modal-footer">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<style>
+    /* Стили можно оставить или адаптировать при необходимости */
+    .chart-container { width: 100%; height: 250px; }
+    .user-score { font-size: 1.1rem; font-weight: bold; color: #007bff; }
+    .user-money { font-size: 1.1rem; font-weight: bold; color: #28a745; margin-left: 10px;}
+    .user-team { font-size: 0.9rem; color: #6c757d; }
+    .user-item { cursor: pointer; transition: background-color 0.2s; }
+    .user-item:hover { background-color: #f8f9fa; }
+    .user-rank { display: inline-block; width: 25px; height: 25px; line-height: 25px; 
+                 text-align: center; border-radius: 50%; margin-right: 10px; }
+    .rank-1 { background-color: #ffd700; color: #212529; }
+    .rank-2 { background-color: #c0c0c0; color: #212529; }
+    .rank-3 { background-color: #cd7f32; color: #212529; }
+    .attempt-success { color: #28a745; font-weight: bold; }
+    .attempt-fail { color: #dc3545; }
+    .team-score { font-size: 1.1rem; font-weight: bold; color: #17a2b8; }
+    /* Стили для Leaflet и иконок */
+    .leaflet-popup-content-wrapper { border-radius: 5px; }
+    .leaflet-popup-content { margin: 10px; font-size: 13px; }
+
+    /* Новые стили для колонок команд */
+    #team-columns-container {
+      display: flex; /* Включаем Flexbox для контейнера */
+      gap: 1rem; /* Добавляем отступ между колонками */
+    }
+
+    #team-columns-container > .card {
+      flex: 1; /* Заставляем каждую карточку занимать равное доступное пространство */
+    }
+</style>
+{% endmacro %}
+
+{% macro quest_statistics_scripts() %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Подключаем Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- (Опционально) Awesome Markers для цветных иконок -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.min.js"></script>
+
+<script>
+    let questAttemptsChart = null;
+    let questUpdateInterval = null;
+    const QUEST_UPDATE_INTERVAL_MS = 30000; // 30 секунд
+    
+    // Глобальная переменная для хранения данных, чтобы не передавать их в обработчик
+    let currentTopUsersData = [];
+    let allQuestionLocations = {}; // Для хранения локаций всех вопросов
+    let userAttemptsMapInstance = null; // Экземпляр карты Leaflet для пользователя
+    let teamMapInstance = null; // Экземпляр карты Leaflet для команды
+    let currentUserForMap = null; // Хранит данные пользователя для карты
+    let currentTeamDataForMap = null; // Хранит данные команды для карты
+    // Переменные для новых графиков
+    let questionSuccessRateChartInstance = null;
+    let userActivityTimelineChartInstance = null;
+
+    async function fetchQuestData(url, errorMsg = 'Ошибка при получении данных квеста') {
+        try {
+            const timestamp = Date.now();
+            const uniqueId = Math.random().toString(36).substring(2, 15);
+            const nocacheUrl = url.includes('?') 
+                ? `${url}&_t=${timestamp}&_r=${uniqueId}` 
+                : `${url}?_t=${timestamp}&_r=${uniqueId}`;
+                
+            const response = await fetch(nocacheUrl, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-No-Cache': uniqueId
+                },
+                cache: 'no-store'
+            });
+            
+            if (!response.ok) throw new Error(errorMsg);
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.message || errorMsg);
+            return data;
+        } catch (error) {
+            console.error('Ошибка:', error);
+            throw error;
+        }
+    }
+    
+    function updateLastUpdateTimeQuest() {
+        const now = new Date();
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const seconds = now.getSeconds().toString().padStart(2, '0');
+        const timeEl = document.getElementById('last-update-time-quest');
+        if (timeEl) {
+             timeEl.textContent = `Обновлено в ${hours}:${minutes}:${seconds}`;
+        }
+    }
+
+    function showUserAttempts(userId) {
+        const user = currentTopUsersData.find(u => u.id === userId);
+        if (!user) return;
+
+        const modalElement = document.getElementById('userAttemptsModal');
+        const modal = $(modalElement); // jQuery объект для работы с Bootstrap методами
+        const modalLabel = document.getElementById('userAttemptsModalLabel');
+        const tableBody = document.querySelector('#userAttemptsTable tbody');
+
+        modalLabel.textContent = `Попытки пользователя: ${user.full_name || 'Не указано'}`;
+        tableBody.innerHTML = ''; // Очищаем таблицу перед заполнением
+
+        if (user.attempts && user.attempts.length > 0) {
+            user.attempts.forEach(attempt => {
+                const date = new Date(attempt.created_at);
+                 // Прибавляем 3 часа к времени (если нужно, как в program_stats)
+                 date.setHours(date.getHours() + 3);
+                const formattedTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+
+                const resultClass = attempt.is_true ? 'attempt-success' : 'attempt-fail';
+                const resultText = attempt.is_true ? 'Успешно' : 'Неуспешно';
+                const score = attempt.is_true ? attempt.score : 0;
+                const money = attempt.is_true ? attempt.money : 0;
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${formattedTime}</td>
+                    <td>${attempt.question_title || '-'}</td>
+                    <td>${attempt.text || '-'}</td>
+                    <td>${attempt.type_name || '-'}</td>
+                    <td class="${resultClass}">${resultText}</td>
+                    <td>${score}</td>
+                    <td>${money}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        } else {
+            const emptyRow = document.createElement('tr');
+            emptyRow.innerHTML = '<td colspan="7" class="text-center">Нет попыток</td>';
+            tableBody.appendChild(emptyRow);
+        }
+
+        // Сохраняем пользователя для карты
+        currentUserForMap = user;
+
+        // Проверяем, открыто ли уже модальное окно
+        if (modalElement.classList.contains('show')) {
+            // Если открыто, немедленно обновляем карту и график
+            // Удаляем старую карту перед инициализацией новой
+            if (userAttemptsMapInstance) {
+                userAttemptsMapInstance.remove();
+                userAttemptsMapInstance = null;
+            }
+            initializeOrUpdateUserMap(currentUserForMap);
+            renderUserActivityTimeline(currentUserForMap);
+        } else {
+             // Если закрыто, просто показываем его (карта/график обновятся в 'shown.bs.modal')
+             modal.modal('show');
+        }
+    }
+    
+    // Функция для расчета суммарных баллов и монет пользователя
+    function calculateUserTotals(user) {
+        let totalScore = 0;
+        let totalMoney = 0;
+        if (user.attempts) {
+            user.attempts.forEach(attempt => {
+                if (attempt.is_true) {
+                    totalScore += attempt.score || 0;
+                    totalMoney += attempt.money || 0;
+                }
+            });
+        }
+        return { totalScore, totalMoney };
+    }
+    
+    function renderTopUsersByAttempts(users) {
+        currentTopUsersData = users; // Сохраняем данные глобально
+        const usersListEl = document.getElementById('top-users-by-attempts-list');
+        if (!usersListEl) return;
+        usersListEl.innerHTML = '';
+        
+        if (!users || users.length === 0) {
+            usersListEl.innerHTML = '<div class="alert alert-info">Нет данных о пользователях</div>';
+            return;
+        }
+        
+        // Рассчитываем суммы и сортируем пользователей по баллам на клиенте
+        users.forEach(user => {
+            const totals = calculateUserTotals(user);
+            user.calculated_score = totals.totalScore;
+            user.calculated_money = totals.totalMoney;
+        });
+        users.sort((a, b) => b.calculated_score - a.calculated_score);
+
+        users.forEach((user, index) => {
+            const rankClass = index < 3 ? `rank-${index + 1}` : 'bg-secondary text-white';
+            
+            const userItem = document.createElement('div');
+            // Делаем элемент кликабельным и добавляем data-атрибут
+            userItem.className = 'list-group-item d-flex justify-content-between align-items-center user-item';
+            userItem.dataset.userId = user.id; // Добавляем data-атрибут
+            userItem.innerHTML = `
+                <div>
+                    <span class="user-rank ${rankClass}">${index + 1}</span>
+                    <span>${user.full_name || 'Не указано'}</span>
+                    <div class="user-team">${user.team || 'Без команды'}</div>
+                </div>
+                <div>
+                    <span class="user-score">${user.calculated_score} баллов</span>
+                    <span class="user-money">${user.calculated_money} монет</span>
+                </div>
+            `;
+            
+            usersListEl.appendChild(userItem);
+        });
+    }
+
+    // Функция для расчета и отрисовки рейтинга команд
+    function calculateAndRenderTeamScores(users) {
+        const teamScoresRu = {};
+        const teamScoresEn = {};
+
+        // Считаем баллы и монеты для каждой команды, разделяя по языку
+        users.forEach(user => {
+            if (user.team && user.team_language) { // Учитываем только пользователей с командой и языком
+                const targetScores = user.team_language === 'ru' ? teamScoresRu : teamScoresEn;
+                
+                if (!targetScores[user.team]) {
+                    // Инициализируем объект для команды
+                    targetScores[user.team] = { score: 0, points: 0, money: 0 };
+                }
+                // Используем уже рассчитанные баллы и монеты пользователя
+                targetScores[user.team].points += user.calculated_score;
+                targetScores[user.team].money += user.calculated_money;
+                // Рассчитываем итоговый score по новой формуле
+                targetScores[user.team].score = targetScores[user.team].points + 0.5 * targetScores[user.team].money;
+            }
+        });
+
+        // --- Обработка RU команд ---
+        const sortedTeamsRu = Object.entries(teamScoresRu)
+            .map(([name, data]) => ({ 
+                name: name, 
+                score: data.score, 
+                points: data.points, 
+                money: data.money 
+            }))
+            .sort((a, b) => b.score - a.score);
+        renderTopTeamsByScore(sortedTeamsRu, 'top-teams-ru-by-score-list');
+        
+        // --- Обработка EN команд ---
+         const sortedTeamsEn = Object.entries(teamScoresEn)
+            .map(([name, data]) => ({ 
+                name: name, 
+                score: data.score, 
+                points: data.points, 
+                money: data.money 
+            }))
+            .sort((a, b) => b.score - a.score);
+        renderTopTeamsByScore(sortedTeamsEn, 'top-teams-en-by-score-list');
+    }
+
+    function renderTopTeamsByScore(teams, targetListId) {
+        const teamsListEl = document.getElementById(targetListId);
+        if (!teamsListEl) return;
+        teamsListEl.innerHTML = '';
+        
+        if (!teams || teams.length === 0) {
+            teamsListEl.innerHTML = '<div class="alert alert-info">Нет данных о командах</div>';
+            return;
+        }
+        
+        teams.forEach((team, index) => {
+            const rankClass = index < 3 ? `rank-${index + 1}` : 'bg-secondary text-white';
+            
+            const teamItem = document.createElement('div');
+            // Делаем команды кликабельными и сохраняем data-атрибут
+            teamItem.className = 'list-group-item d-flex justify-content-between align-items-center user-item'; // Добавляем user-item для стиля
+            teamItem.dataset.teamName = team.name; // Сохраняем имя команды в data-атрибуте
+            
+            // Формируем строку с детализацией
+            const details = `(${team.points || 0} баллов + ${team.money || 0} монет / 2)`;
+            
+            teamItem.innerHTML = `
+                <div>
+                    <span class="user-rank ${rankClass}">${index + 1}</span>
+                    <span>${team.name || 'Без названия'}</span>
+                </div>
+                <span class="team-score">${team.score.toFixed(1) || 0} <small>${details}</small></span>
+            `;
+
+            // Возвращаем обработчик клика для показа карты команды
+            teamItem.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const clickedTeamName = event.currentTarget.dataset.teamName;
+                if (clickedTeamName) {
+                    showTeamMap(clickedTeamName);
+                }
+            });
+
+            teamsListEl.appendChild(teamItem);
+        });
+    }
+
+    // TODO: Реализовать функцию отрисовки графика попыток по вопросам
+    function renderQuestAttemptsChart(questionAttempts) {
+        const ctx = document.getElementById('questAttemptsChart')?.getContext('2d');
+        if (!ctx) return;
+        
+        if (questAttemptsChart) {
+            questAttemptsChart.destroy();
+        }
+        
+        if (!questionAttempts || questionAttempts.length === 0) {
+            $(ctx.canvas).parent().html('<p class="text-center text-muted my-5">Нет данных для графика попыток</p>');
+            questAttemptsChart = null;
+            return;
+        }
+        
+        // Пример данных (заменить на реальные из API)
+        // const sortedData = [...questionAttempts].sort((a, b) => b.attempts - a.attempts);
+        const labels = questionAttempts.map(item => item.question_name || 'Вопрос ' + item.question_id);
+        const dataValues = questionAttempts.map(item => item.attempts || 0);
+        
+        const colors = [
+            'rgba(75, 192, 192, 0.7)',
+            'rgba(255, 159, 64, 0.7)',
+            'rgba(153, 102, 255, 0.7)',
+            'rgba(255, 99, 132, 0.7)',
+            'rgba(54, 162, 235, 0.7)',
+            'rgba(255, 205, 86, 0.7)',
+            'rgba(201, 203, 207, 0.7)',
+        ];
+            
+        questAttemptsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Количество попыток',
+                    data: dataValues,
+                    backgroundColor: dataValues.map((_, i) => colors[i % colors.length]),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Попытки' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.raw} попыток`
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    async function updateQuestStatistics() {
+        try {
+            const endpoint = '/admin/quest/stats';
+            const responseData = await fetchQuestData(endpoint);
+            const stats = responseData.data;
+            
+            // Обновляем время последнего обновления
+            updateLastUpdateTimeQuest();
+            
+            // Сохраняем локации всех вопросов глобально
+            allQuestionLocations = stats.all_question_locations || {};
+            
+            // Обновляем список топ пользователей (теперь с баллами, монетами и кликабельностью)
+            const users = stats.top_users_by_attempts || [];
+            renderTopUsersByAttempts(users);
+            
+            // Рассчитываем и обновляем список топ команд на клиенте
+            calculateAndRenderTeamScores(users);
+            
+            // Рассчитываем и обновляем график успешности вопросов
+            const questionStats = calculateQuestionStats(users, allQuestionLocations);
+            renderQuestionSuccessRateChart(questionStats);
+
+            // Рассчитываем и обновляем список уникальных попыток по всем пользователям
+            renderAllUniqueRiddleAttempts(users, allQuestionLocations);
+            
+        } catch (error) {
+            console.error('Ошибка при обновлении статистики квеста:', error);
+            const contentEl = document.getElementById('quest-stats-content');
+            if (contentEl) {
+                 contentEl.innerHTML = 
+                    '<div class="alert alert-danger">Не удалось загрузить статистику квеста.</div>';
+            }
+        }
+    }
+    
+    function startQuestRealTimeUpdates() {
+        updateQuestStatistics();
+        
+        if (questUpdateInterval) {
+            clearInterval(questUpdateInterval);
+        }
+        
+        questUpdateInterval = setInterval(() => {
+            updateQuestStatistics();
+        }, QUEST_UPDATE_INTERVAL_MS);
+    }
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        startQuestRealTimeUpdates();
+
+        // --- Делегирование событий для списков ---
+        const userList = document.getElementById('top-users-by-attempts-list');
+        if (userList) {
+            userList.addEventListener('click', (event) => {
+                const clickedItem = event.target.closest('.user-item');
+                if (clickedItem && clickedItem.dataset.userId) {
+                    const userId = parseInt(clickedItem.dataset.userId, 10);
+                    if (!isNaN(userId)) {
+                        showUserAttempts(userId);
+                    }
+                }
+            });
+        }
+
+        // Обработчик для модального окна пользователя
+        $('#userAttemptsModal').on('shown.bs.modal', function () {
+            // Удаляем старую карту перед инициализацией новой
+            if (userAttemptsMapInstance) {
+                userAttemptsMapInstance.remove();
+                userAttemptsMapInstance = null;
+            }
+            if (currentUserForMap) {
+                initializeOrUpdateUserMap(currentUserForMap);
+                // Добавляем отрисовку графика активности
+                renderUserActivityTimeline(currentUserForMap);
+            }
+        });
+
+        // Обработчик для модального окна команды
+        $('#teamMapModal').on('shown.bs.modal', function () {
+            // Удаляем старую карту перед инициализацией новой
+            if (teamMapInstance) {
+                teamMapInstance.remove();
+                teamMapInstance = null;
+            }
+            if (currentTeamDataForMap) {
+                initializeOrUpdateTeamMap(
+                    currentTeamDataForMap.teamLanguage,
+                    currentTeamDataForMap.solvedIds,
+                    currentTeamDataForMap.visitedIds
+                );
+            }
+        });
+    });
+    
+    window.addEventListener('beforeunload', () => {
+        if (questUpdateInterval) {
+            clearInterval(questUpdateInterval);
+        }
+    });
+
+    // Функция инициализации/обновления карты пользователя
+    function initializeOrUpdateUserMap(user) {
+        const mapContainerId = 'user-attempts-map';
+        const mapContainer = document.getElementById(mapContainerId);
+        if (!mapContainer) return;
+
+        // Всегда создаем новый экземпляр карты
+        userAttemptsMapInstance = L.map(mapContainerId).setView([55.751244, 37.618423], 10); // Центр - Москва
+        // Создаем и добавляем базовый слой (без сохранения в глоб. переменную)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(userAttemptsMapInstance);
+
+        const solvedQuestionIds = new Set();
+        const visitedInsiderQuestionIds = new Set();
+        if (user.attempts) {
+            user.attempts.forEach(attempt => {
+                if (attempt.is_true && attempt.question_id) {
+                    if (['question', 'question_hint'].includes(attempt.type_name)) { 
+                        solvedQuestionIds.add(attempt.question_id);
+                    } else if (['insider', 'insider_hint'].includes(attempt.type_name)) { 
+                        visitedInsiderQuestionIds.add(attempt.question_id);
+                    }
+                }
+            });
+        }
+
+        const markers = [];
+        const userLang = user.team_language;
+
+        for (const questionIdStr in allQuestionLocations) {
+            const questionId = parseInt(questionIdStr, 10);
+            const questionData = allQuestionLocations[questionIdStr];
+
+            if (questionData.language === userLang && questionData.geo_answered) {
+                try {
+                    const coords = questionData.geo_answered.split(',').map(Number);
+                    if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) {
+                        let markerColor = 'gray';
+                        let iconPrefix = 'glyphicon'; 
+                        let icon = 'circle';
+                        
+                        const isSolved = solvedQuestionIds.has(questionId);
+                        const isInsiderVisited = visitedInsiderQuestionIds.has(questionId);
+
+                        if (isSolved && isInsiderVisited) {
+                            markerColor = 'red';
+                            icon = 'ok-sign';
+                        } else if (isSolved && !isInsiderVisited) {
+                            markerColor = 'blue';
+                            icon = 'ok-sign';
+                        }
+
+                        const marker = L.marker(coords, {
+                            icon: L.AwesomeMarkers.icon({
+                                icon: icon,
+                                prefix: iconPrefix,
+                                markerColor: markerColor
+                            })
+                        }).bindPopup(`<b>${questionData.title || 'Без названия'}</b>`);
+                        markers.push(marker);
+                        marker.addTo(userAttemptsMapInstance);
+                    } else {
+                        console.warn(`Invalid coordinates format for question ${questionId}: ${questionData.geo_answered}`);
+                    }
+                } catch (e) {
+                    console.error(`Error processing question ${questionId}:`, e);
+                }
+            }
+        }
+        
+        if (userAttemptsMapInstance) {
+            userAttemptsMapInstance.invalidateSize();
+            if (markers.length > 0) {
+                const group = L.featureGroup(markers);
+                userAttemptsMapInstance.fitBounds(group.getBounds().pad(0.3));
+            }
+        }
+    }
+
+    // Новая функция для показа карты команды
+    function showTeamMap(teamName) {
+        const teamUsers = currentTopUsersData.filter(u => u.team === teamName);
+        if (!teamUsers || teamUsers.length === 0) {
+            console.warn("Не найдены пользователи для команды:", teamName);
+            return;
+        }
+        
+        const teamLanguage = teamUsers[0].team_language; // Берем язык у первого пользователя команды
+        const modal = document.getElementById('teamMapModal');
+        const modalLabel = document.getElementById('teamMapModalLabel');
+        
+        modalLabel.textContent = `Карта прогресса команды: ${teamName}`;
+
+        // Агрегируем статусы вопросов для всей команды
+        const solvedIds = new Set();
+        const visitedIds = new Set();
+        teamUsers.forEach(user => {
+            if (user.attempts) {
+                user.attempts.forEach(attempt => {
+                    if (attempt.is_true && attempt.question_id) {
+                        if (['question', 'question_hint'].includes(attempt.type_name)) {
+                            solvedIds.add(attempt.question_id);
+                        } else if (['insider', 'insider_hint'].includes(attempt.type_name)) {
+                            visitedIds.add(attempt.question_id);
+                        }
+                    }
+                });
+            }
+        });
+
+        // Сохраняем данные для карты и показываем модал
+        currentTeamDataForMap = { teamLanguage, solvedIds, visitedIds };
+        // Показываем модальное окно
+        $(modal).modal('show');
+    }
+
+    // Функция инициализации/обновления карты команды (очень похожа на user map)
+    function initializeOrUpdateTeamMap(teamLanguage, solvedIds, visitedIds) {
+        const mapContainerId = 'team-map';
+        const mapContainer = document.getElementById(mapContainerId);
+        if (!mapContainer) return;
+
+        // Всегда создаем новый экземпляр карты
+        teamMapInstance = L.map(mapContainerId).setView([55.751244, 37.618423], 10);
+        // Создаем и добавляем базовый слой (без сохранения в глоб. переменную)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(teamMapInstance);
+
+        // Добавление маркеров для вопросов языка команды
+        const markers = [];
+        for (const questionIdStr in allQuestionLocations) {
+            const questionId = parseInt(questionIdStr, 10);
+            const questionData = allQuestionLocations[questionIdStr];
+
+            if (questionData.language === teamLanguage && questionData.geo_answered) {
+                try {
+                    const coords = questionData.geo_answered.split(',').map(Number);
+                    if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) {
+                        let markerColor = 'gray';
+                        let iconPrefix = 'glyphicon';
+                        let icon = 'circle';
+
+                        const isSolved = solvedIds.has(questionId);
+                        const isInsiderVisited = visitedIds.has(questionId);
+
+                        if (isSolved && isInsiderVisited) {
+                            markerColor = 'red';
+                            icon = 'ok-sign';
+                        } else if (isSolved && !isInsiderVisited) {
+                            markerColor = 'blue';
+                            icon = 'ok-sign';
+                        } // Серая по умолчанию
+
+                        const marker = L.marker(coords, {
+                            icon: L.AwesomeMarkers.icon({
+                                icon: icon,
+                                prefix: iconPrefix,
+                                markerColor: markerColor
+                            })
+                        }).bindPopup(`<b>${questionData.title || 'Без названия'}</b>`);
+                        markers.push(marker);
+                        marker.addTo(teamMapInstance);
+                    } else {
+                        console.warn(`Invalid coordinates format for team question ${questionId}: ${questionData.geo_answered}`);
+                    }
+                } catch (e) {
+                    console.error(`Error processing team question ${questionId}:`, e);
+                }
+            }
+        }
+
+        if (teamMapInstance) {
+            teamMapInstance.invalidateSize();
+            if (markers.length > 0) {
+                const group = L.featureGroup(markers);
+                teamMapInstance.fitBounds(group.getBounds().pad(0.3));
+            }
+        }
+    }
+
+    // --- Функции для графика успешности вопросов --- 
+    function calculateQuestionStats(users, allQuestionLocations) {
+        const stats = {}; // { questionId: { total: 0, success: 0 } }
+
+        users.forEach(user => {
+            if (user.attempts) {
+                user.attempts.forEach(attempt => {
+                    // Учитываем только прямые ответы на вопросы
+                    if (attempt.question_id && attempt.type_name === 'question') { 
+                        const qId = attempt.question_id;
+                        if (!stats[qId]) {
+                            stats[qId] = { total: 0, success: 0 };
+                        }
+                        stats[qId].total++;
+                        if (attempt.is_true) {
+                            stats[qId].success++;
+                        }
+                    }
+                });
+            }
+        });
+        
+        // Преобразуем в массив для графика, добавляем названия и считаем процент
+        const statsData = Object.keys(stats).map(qId => {
+            const questionInfo = allQuestionLocations[qId] || {};
+            const total = stats[qId].total;
+            const success = stats[qId].success;
+            const successRate = total > 0 ? (success / total) * 100 : 0;
+            
+            // Извлекаем текст из ссылки, если она есть в названии
+            let displayTitle = questionInfo.title || `Вопрос ID: ${qId}`;
+            const linkMatch = displayTitle.match(/<a [^>]*>(.*?)<\/a>/i);
+            if (linkMatch && linkMatch[1]) {
+                displayTitle = linkMatch[1].trim(); // Используем текст ссылки
+            }
+
+            return {
+                question_id: parseInt(qId, 10),
+                title: displayTitle, // Используем обработанное название
+                successRate: successRate,
+                totalAttempts: total,
+                successAttempts: success
+            };
+        });
+
+        // Сортируем по названию вопроса для стабильного порядка
+        statsData.sort((a, b) => a.title.localeCompare(b.title));
+        
+        return statsData;
+    }
+
+    function renderQuestionSuccessRateChart(statsData) {
+        const ctx = document.getElementById('questionSuccessRateChart')?.getContext('2d');
+        if (!ctx) return;
+
+        if (questionSuccessRateChartInstance) {
+            questionSuccessRateChartInstance.destroy();
+            questionSuccessRateChartInstance = null;
+        }
+
+        if (!statsData || statsData.length === 0) {
+            $(ctx.canvas).parent().html('<p class="text-center text-muted my-5">Нет данных для графика успешности</p>');
+            return;
+        }
+        
+        const labels = statsData.map(item => item.title);
+        const dataValues = statsData.map(item => item.successRate);
+
+        const backgroundColors = dataValues.map(rate => {
+            if (rate > 75) return 'rgba(40, 167, 69, 0.7)'; // Зеленый
+            if (rate > 40) return 'rgba(255, 193, 7, 0.7)';  // Желтый
+            return 'rgba(220, 53, 69, 0.7)'; // Красный
+        });
+
+        questionSuccessRateChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Успешность (%)',
+                    data: dataValues,
+                    backgroundColor: backgroundColors,
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                indexAxis: 'y', // Горизонтальные полосы для лучшей читаемости названий
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        max: 100,
+                        title: { display: true, text: 'Успешных ответов (%)' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const index = context.dataIndex;
+                                const data = statsData[index];
+                                return `${data.successRate.toFixed(1)}% (${data.successAttempts} из ${data.totalAttempts} попыток)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    // --- Конец функций для графика успешности вопросов --- 
+
+    // --- Функция для графика активности пользователя --- 
+    function renderUserActivityTimeline(user) {
+        const ctx = document.getElementById('userActivityTimelineChart')?.getContext('2d');
+        if (!ctx) return;
+
+        if (userActivityTimelineChartInstance) {
+            userActivityTimelineChartInstance.destroy();
+            userActivityTimelineChartInstance = null;
+        }
+
+        if (!user || !user.attempts || user.attempts.length === 0) {
+             $(ctx.canvas).parent().html('<p class="text-center text-muted my-3">Нет данных об активности</p>');
+             return;
+        }
+        
+        // Сортируем попытки по времени
+        const sortedAttempts = [...user.attempts].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        
+        const labels = sortedAttempts.map(attempt => {
+            const date = new Date(attempt.created_at);
+            date.setHours(date.getHours() + 3); // Коррекция времени
+            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+        });
+        
+        // Данные - просто точки на одной линии (y=1), цвет зависит от успеха
+        const dataPoints = sortedAttempts.map(attempt => ({ 
+            x: labels[sortedAttempts.indexOf(attempt)], // Используем время как категорию
+            y: 1, 
+            is_true: attempt.is_true,
+            type: attempt.type_name,
+            question: attempt.question_title || '-',
+            text: attempt.text || '-'
+        }));
+
+        userActivityTimelineChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                // labels: labels, // Можно использовать labels или парсить время в tooltip
+                datasets: [{
+                    label: 'Попытка',
+                    data: dataPoints,
+                    borderColor: 'rgba(0, 123, 255, 0.5)',
+                    backgroundColor: dataPoints.map(p => p.is_true ? 'rgba(40, 167, 69, 0.8)' : 'rgba(220, 53, 69, 0.8)'), // Цвет точки
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    showLine: false // Показываем только точки
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        // type: 'time', // Пока используем категории
+                        title: { display: true, text: 'Время попытки' },
+                        ticks: { // Показываем меньше тиков, чтобы избежать наложения
+                             maxTicksLimit: 10
+                         }
+                    },
+                    y: {
+                        display: false, // Скрываем ось Y
+                        min: 0.5,
+                        max: 1.5
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                // Заголовок - время
+                                return `Время: ${context[0].raw.x}`;
+                            },
+                            label: function(context) {
+                                const point = context.raw;
+                                const result = point.is_true ? 'Успех' : 'Неудача';
+                                
+                                // Извлекаем текст из ссылки, если она есть в названии вопроса
+                                let questionTitle = point.question;
+                                const linkMatch = questionTitle.match(/<a [^>]*>(.*?)<\/a>/i);
+                                if (linkMatch && linkMatch[1]) {
+                                    questionTitle = linkMatch[1].trim(); // Используем текст ссылки
+                                }
+
+                                const lines = [
+                                    `Тип: ${point.type || '-'}`, 
+                                    `Вопрос: ${questionTitle}`, // Используем обработанное название
+                                    `Результат: ${result}`,
+                                    `Текст: ${point.text.substring(0, 50)}${point.text.length > 50 ? '...' : ''}`
+                                ];
+                                return lines;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    // --- Конец функции для графика активности пользователя ---
+
+    // --- Новая функция для отображения уникальных попыток всех пользователей --- 
+    function renderAllUniqueRiddleAttempts(users, allQuestionLocations) {
+        const container = document.getElementById('all-unique-riddle-attempts');
+        if (!container) return;
+
+        container.innerHTML = ''; // Очищаем контейнер
+
+        if (!users || users.length === 0) {
+            container.innerHTML = '<p class="text-center text-muted my-3">Нет данных о попытках</p>';
+            return;
+        }
+
+        const allRiddleAttemptsByQuestion = {};
+
+        users.forEach(user => {
+            if (user.attempts) {
+                user.attempts.forEach(attempt => {
+                    // Фильтруем попытки типа 'question' и 'question_hint'
+                    if ((attempt.type_name === 'question' || attempt.type_name === 'question_hint') && attempt.question_id) {
+                        const qId = attempt.question_id;
+                        if (!allRiddleAttemptsByQuestion[qId]) {
+                             // Используем информацию из allQuestionLocations для названия
+                            const questionInfo = allQuestionLocations[qId] || {};
+                            let title = questionInfo.title || `Вопрос ID: ${qId}`;
+                            // Обрабатываем название для извлечения текста ссылки
+                            const linkMatch = title.match(/<a [^>]*>(.*?)<\/a>/i);
+                            if (linkMatch && linkMatch[1]) {
+                                title = linkMatch[1].trim();
+                            }
+
+                            allRiddleAttemptsByQuestion[qId] = {
+                                title: title,
+                                uniqueTextsWithCounts: {} // Используем объект для хранения текста и счетчика
+                            };
+                        }
+                        if (attempt.text) { // Добавляем только непустые тексты
+                            const trimmedText = attempt.text.trim();
+                            if (trimmedText) {
+                                if (!allRiddleAttemptsByQuestion[qId].uniqueTextsWithCounts[trimmedText]) {
+                                    allRiddleAttemptsByQuestion[qId].uniqueTextsWithCounts[trimmedText] = 0;
+                                }
+                                allRiddleAttemptsByQuestion[qId].uniqueTextsWithCounts[trimmedText]++;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        const questionsWithAttempts = Object.values(allRiddleAttemptsByQuestion).filter(q => Object.keys(q.uniqueTextsWithCounts).length > 0);
+
+        if (questionsWithAttempts.length > 0) {
+            let htmlContent = '';
+            // Сортируем по названию вопроса
+            questionsWithAttempts.sort((a, b) => a.title.localeCompare(b.title));
+
+            questionsWithAttempts.forEach(questionData => {
+                htmlContent += `<div class="mb-3"><h6>${questionData.title}</h6><ul class="list-unstyled">`;
+                // Сортируем ответы по тексту для единообразия
+                const sortedAnswers = Object.entries(questionData.uniqueTextsWithCounts)
+                                          .sort((a, b) => a[0].localeCompare(b[0]));
+
+                sortedAnswers.forEach(([text, count]) => {
+                    // Экранируем HTML для безопасности
+                    const escapedText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                     // Добавляем стиль для переноса длинных строк и счетчик в скобках, текст в кавычках
+                    htmlContent += `<li style="word-break: break-all; margin-bottom: 2px; padding-left: 10px; border-left: 2px solid #eee;">"${escapedText}" (${count})</li>`; 
+                });
+                htmlContent += '</ul></div>';
+            });
+            container.innerHTML = htmlContent;
+        } else {
+            container.innerHTML = '<p class="text-center text-muted my-3">Нет уникальных ответов на загадки</p>';
+        }
+    }
+    // --- Конец функции --- 
+</script>
+{% endmacro %} 

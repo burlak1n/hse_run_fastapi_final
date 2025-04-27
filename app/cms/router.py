@@ -13,6 +13,7 @@ import io
 import uuid
 import json
 from sqlalchemy import func, select, text, cast, Date
+from sqlalchemy.orm import selectinload
 
 from app.config import DEBUG
 from app.dao.database import engine
@@ -626,6 +627,168 @@ class AdminProgramView(AdminPage):
         admin.app.get("/admin/program/user/{user_id}/transactions")(require_organizer_role(self.get_user_transactions))
 
 
+class AdminQuestView(AdminPage):
+    """Представление для статистики по квесту."""
+    name = "Квест"
+    icon = "fa-solid fa-list-check"
+
+    async def get_quest_page(self, request: Request) -> HTMLResponse:
+        """Отображает страницу статистики квеста."""
+        user = request.scope.get("user")
+        return templates.TemplateResponse(
+            "admin/quest.html",
+            {"request": request, "user": user}
+        )
+
+    async def get_quest_stats(self, request: Request) -> JSONResponse:
+        """Возвращает статистику по попыткам в квесте."""
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.quest.dao import AttemptsDAO  # Предполагаем, что такой DAO есть
+        from app.auth.dao import UsersDAO # Для информации о пользователях
+        from sqlalchemy import func, select
+        from app.quest.models import Attempt, AttemptType, Question, Block # Добавляем Block для языка
+        from app.auth.models import User, Command, CommandsUser, Language # Добавляем Language для языка
+
+        try:
+            async with AsyncSession(engine) as session:
+                attempts_dao = AttemptsDAO(session)
+                users_dao = UsersDAO(session)
+
+                # Пример: Топ пользователей по кол-ву попыток
+                top_users_by_attempts_query = select(
+                    Attempt.user_id,
+                    func.count(Attempt.id).label('attempts_count')
+                ).group_by(
+                    Attempt.user_id
+                ).order_by(
+                    func.count(Attempt.id).desc()
+                ) # Увеличим лимит, чтобы видеть больше пользователей
+
+                top_users_result = await session.execute(top_users_by_attempts_query)
+                top_attempts_rows = top_users_result.all()
+                
+                top_users_data = []
+                user_ids = [row.user_id for row in top_attempts_rows]
+                
+                if user_ids:
+                    # Получаем информацию о пользователях
+                    users_info_query = select(User).options(selectinload(User.role)).where(User.id.in_(user_ids))
+                    users_info_result = await session.execute(users_info_query)
+                    users_map = {user.id: user for user in users_info_result.unique().scalars().all()}
+
+                    # Получаем связки CommandsUser и ЗАГРУЖАЕМ команды с языком
+                    commands_user_query = select(CommandsUser).options(
+                        selectinload(CommandsUser.command).selectinload(Command.language)
+                    ).where(CommandsUser.user_id.in_(user_ids))
+                    commands_user_result = await session.execute(commands_user_query)
+                    
+                    commands_map = {}
+                    # Создаем карту user_id -> {id, name, language_name}
+                    for cu in commands_user_result.unique().scalars().all():
+                        command_data = None
+                        if cu.command:
+                            command_data = {
+                                "id": cu.command.id,
+                                "name": cu.command.name,
+                                "language": cu.command.language.name if cu.command.language else None
+                            }
+                        commands_map[cu.user_id] = command_data
+                        
+                    # Убедимся, что все user_id есть в карте, даже если у них нет команды
+                    for user_id in user_ids:
+                        if user_id not in commands_map:
+                            commands_map[user_id] = None
+
+                    # Получаем ВСЕ попытки для этих пользователей одним запросом
+                    all_attempts_query = select(Attempt).options(
+                        selectinload(Attempt.attempt_type), # Загружаем тип попытки
+                        selectinload(Attempt.question)     # Загружаем вопрос
+                    ).where(Attempt.user_id.in_(user_ids)).order_by(Attempt.created_at.desc())
+                    
+                    all_attempts_result = await session.execute(all_attempts_query)
+                    # Используем unique() чтобы избежать дубликатов из-за selectinload
+                    all_attempts = all_attempts_result.unique().scalars().all()
+                    
+                    # Группируем попытки по пользователям и считаем баллы/монеты
+                    user_attempts_map = {user_id: [] for user_id in user_ids}
+                    user_scores_map = {user_id: {"score": 0, "money": 0} for user_id in user_ids}
+                    
+                    for attempt in all_attempts:
+                        if attempt.user_id in user_attempts_map:
+                            attempt_data = {
+                                "id": attempt.id,
+                                "text": attempt.attempt_text,
+                                "is_true": attempt.is_true,
+                                "created_at": attempt.created_at.isoformat() if attempt.created_at else None,
+                                "type_name": attempt.attempt_type.name if attempt.attempt_type else "Неизвестный тип",
+                                "score": attempt.attempt_type.score if attempt.attempt_type else 0,
+                                "money": attempt.attempt_type.money if attempt.attempt_type else 0,
+                                "question_id": attempt.question_id,
+                                "question_title": attempt.question.title if attempt.question else None
+                            }
+                            user_attempts_map[attempt.user_id].append(attempt_data)
+                            
+                            # Считаем итоговые баллы/монеты пользователя
+                            if attempt.is_true and attempt.attempt_type:
+                                user_scores_map[attempt.user_id]["score"] += attempt.attempt_type.score
+                                user_scores_map[attempt.user_id]["money"] += attempt.attempt_type.money
+
+                    # Формируем итоговый список пользователей
+                    for user_id in user_ids:
+                        user = users_map.get(user_id)
+                        command_data = commands_map.get(user_id)
+                        if user:
+                            user_data = {
+                                # Данные пользователя (как раньше)
+                                "id": user_id,
+                                "full_name": user.full_name,
+                                "telegram_username": user.telegram_username,
+                                # Данные команды (как раньше)
+                                "team": command_data["name"] if command_data else None,
+                                "team_language": command_data["language"] if command_data else None,
+                                "attempts": user_attempts_map[user_id] # Список всех попыток
+                            }
+                            top_users_data.append(user_data)
+                
+                # Сортируем итоговый список пользователей по имени (или другому критерию)
+                top_users_data.sort(key=lambda x: x.get('full_name', '').lower())
+
+                # Получаем все вопросы, их геоданные и язык
+                all_questions_query = select(Question).options(
+                    selectinload(Question.block).selectinload(Block.language) # Загружаем блок и язык
+                )
+                all_questions_result = await session.execute(all_questions_query)
+                all_question_locations = {
+                    q.id: {
+                        "title": q.title, 
+                        "geo_answered": q.geo_answered, 
+                        "language": q.block.language.name if q.block and q.block.language else None
+                    }
+                    for q in all_questions_result.unique().scalars().all() # Используем unique().scalars()
+                }
+
+                return JSONResponse({
+                    "ok": True,
+                    "data": {
+                        "top_users_by_attempts": top_users_data,
+                        "all_question_locations": all_question_locations
+                    }
+                })
+
+        except Exception as e:
+            logger.error(f"Ошибка при получении статистики квеста: {e}", exc_info=True)
+            return JSONResponse({
+                "ok": False,
+                "message": f"Ошибка при получении статистики квеста: {str(e)}"
+            }, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def register(self, admin: Admin) -> None:
+        """Регистрирует маршруты для статистики квеста."""
+        admin.app.get("/admin/quest")(require_organizer_role(self.get_quest_page))
+        admin.app.get("/admin/quest/")(require_organizer_role(self.get_quest_page))
+        admin.app.get("/admin/quest/stats")(require_organizer_role(self.get_quest_stats))
+
+
 class AdminAuthMiddleware(BaseHTTPMiddleware):
     """Middleware для аутентификации в админке, дающее доступ только пользователям с ролью organizer."""
     
@@ -724,7 +887,7 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     """Инициализирует админ-панель с проверкой прав доступа."""
     
     # Создаем экземпляр админки
-    admin = Admin(app, engine, base_url=base_url)
+    admin = Admin(app, engine, base_url=base_url, templates_dir="app/cms/templates")
     
     # Обработчики для корневого пути с обоими вариантами (со слешем и без)
     @admin.app.get(f"{base_url}")
@@ -782,6 +945,10 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     # Добавляем страницу работы с картой программы
     program_view = AdminProgramView()
     program_view.register(admin)
+    
+    # Добавляем страницу статистики квеста
+    quest_view = AdminQuestView()
+    quest_view.register(admin)
     
     # Автоматически регистрируем все классы ModelView из модуля views
     for name, view in vars(views).items():
