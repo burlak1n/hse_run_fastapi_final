@@ -1,5 +1,15 @@
 from fastapi import status, HTTPException
 
+NotFoundException = HTTPException(
+    status_code=status.HTTP_404_NOT_FOUND,
+    detail='Не найдено'
+)
+
+BadRequestException = HTTPException(
+    status_code=status.HTTP_400_BAD_REQUEST,
+    detail='Некорректный запрос'
+)
+
 # Пользователь уже существует
 UserAlreadyExistsException = HTTPException(
     status_code=status.HTTP_409_CONFLICT,

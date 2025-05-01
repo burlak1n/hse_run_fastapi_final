@@ -15,13 +15,29 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import time
 import urllib.parse
 from pathlib import Path
+import uuid
+
+# Import logger and context var from app.logger
+from app.logger import request_id_context
+
+# Импорты CSRF
+# from fastapi_csrf_protect import CsrfProtect # Removed CSRF import
+# from fastapi_csrf_protect.exceptions import CsrfProtectError # Removed CSRF import
+from pydantic import BaseModel
 
 from app.quest.router import router as router_quest
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
 from app.utils.template import render_template
 from app.dependencies.template_dep import get_templates
-from app.config import event_config, DEBUG, BASE_URL
+from app.config import event_config, DEBUG, BASE_URL, settings
+# Import FastStream broker
+from app.tasks.cleanup import broker as cleanup_broker
+# Import FastAPI Cache
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from redis import asyncio as aioredis
 
 # Настройки безопасности
 # Получаем домен из BASE_URL для добавления в разрешенные хосты и источники
@@ -81,6 +97,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         # Пропускаем запрос дальше
         response = await call_next(request)
+        return response
+
+# Middleware for adding Request ID
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = str(uuid.uuid4())
+        token = request_id_context.set(request_id)
+        request.state.request_id = request_id
+        logger.bind(request_id=request_id).info(f"Request started: {request.method} {request.url.path}")
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            logger.bind(request_id=request_id).info(f"Request finished: {response.status_code}")
+        except Exception as e:
+            logger.bind(request_id=request_id).exception("Unhandled exception during request")
+            raise e
+        finally:
+            request_id_context.reset(token)
         return response
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
@@ -202,139 +236,165 @@ class SQLInjectionProtectionMiddleware(BaseHTTPMiddleware):
         
         return False
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
-    """Управление жизненным циклом приложения."""
-    logger.info("Инициализация приложения...")
-    yield
-    logger.info("Завершение работы приложения...")
-
-
-def create_app() -> FastAPI:
-    """
-   Создание и конфигурация FastAPI приложения.
-
-   Returns:
-       Сконфигурированное приложение FastAPI
-   """
-    app = FastAPI(
-        title="HSE RUN",
-        description=(
-            "HSE RUN - культурно-исторический квест по Москве"
-        ),
-        version="1.0.0",
-        lifespan=lifespan,
-    )
-
-    # Настройка глобальных обработчиков исключений
-    @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        """Обработчик HTTP исключений."""
-        logger.error(f"HTTP ошибка {exc.status_code}: {exc.detail}")
-        
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "ok": False,
-                "error": {
-                    "code": exc.status_code,
-                    "message": exc.detail,
-                    "type": "http_error"
-                }
-            }
-        )
+# Настройка Middleware (CORS, TrustedHost, Security, Rate Limiting)
+def setup_middleware(app: FastAPI):
+    # Add Request ID Middleware (should be one of the first)
+    app.add_middleware(RequestIdMiddleware)
     
-    @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-        """Обработчик ошибок валидации запросов."""
-        errors = []
-        for error in exc.errors():
-            error_info = {
-                "field": ".".join(str(loc) for loc in error["loc"]) if "loc" in error else "",
-                "message": error["msg"],
-                "type": error["type"]
-            }
-            errors.append(error_info)
-            
-        logger.error(f"Ошибка валидации: {errors}")
-        
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={
-                "ok": False,
-                "error": {
-                    "code": 422,
-                    "message": "Ошибка валидации данных",
-                    "type": "validation_error",
-                    "details": errors
-                }
-            }
-        )
-    
-    @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        """Обработчик общих исключений."""
-        error_id = f"{time.time():.0f}"  # Генерируем ID ошибки для отслеживания
-        
-        error_info = {
-            "path": request.url.path,
-            "method": request.method,
-            "error_id": error_id,
-            "error": str(exc),
-            "traceback": traceback.format_exc()
-        }
-        
-        logger.error(f"Неожиданная ошибка [{error_id}]: {str(exc)}\n{traceback.format_exc()}")
-        
-        response = {
-            "ok": False,
-            "error": {
-                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
-                "message": "Внутренняя ошибка сервера",
-                "type": "server_error",
-                "error_id": error_id
-            }
-        }
-        
-        # В режиме отладки добавляем информацию об ошибке
-        if DEBUG:
-            response["error"]["debug_info"] = {
-                "exception": str(exc),
-                "traceback": traceback.format_exc()
-            }
-        
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=response
-        )
-
-    # Настройка CORS с более строгими ограничениями
+    # Настройка CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
-        max_age=3600,  # 1 час
+        allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE", "PATCH"], # Добавляем методы
+        allow_headers=["*"], # Разрешаем все заголовки, включая X-CSRF-Token
+        max_age=3600,
     )
     
-    # Добавляем middleware для проверки хостов
+    # Проверка хостов
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
     
-    # Добавляем middleware для безопасности
+    # Middleware безопасности (заголовки)
     app.add_middleware(SecurityHeadersMiddleware)
     
-    # Ограничиваем размер тела запроса
+    # Ограничение размера тела запроса
     app.add_middleware(MaxBodySizeMiddleware)
     
-    # Добавляем rate limiting только в production
+    # Ограничение частоты запросов (только в production)
     if not DEBUG:
-        # app.add_middleware(RateLimitMiddleware) # Убираем ограничение запросов
-        pass # Добавляем pass, так как блок if не может быть пустым
+        # app.add_middleware(RateLimitMiddleware)
+        pass
 
-    # Добавляем защиту от SQL-инъекций
-    app.add_middleware(SQLInjectionProtectionMiddleware)
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
+    """Управление жизненным циклом приложения."""
+    logger.info("Инициализация приложения...")
+    redis_cache = None
+    if settings.USE_REDIS:
+        logger.info("Redis is ENABLED. Initializing Redis features...")
+        # Initialize Redis for cache
+        try:
+            redis_cache = aioredis.from_url(settings.REDIS_URL, encoding="utf8", decode_responses=True)
+            FastAPICache.init(RedisBackend(redis_cache), prefix="fastapi-cache")
+            logger.info(f"FastAPI Cache initialized with Redis backend at {settings.REDIS_URL}")
+            
+            # Start FastStream broker
+            await cleanup_broker.start()
+            logger.info("FastStream broker started.")
+        except Exception as e:
+             logger.exception("Failed to initialize Redis features. Check Redis connection and settings.")
+             # Decide if startup should fail. For now, continue without Redis.
+             settings.USE_REDIS = False # Disable Redis usage if init fails
+             FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
+             logger.warning("Falling back to InMemory cache.")
+    else:
+        logger.info("Redis is DISABLED. Using InMemory cache.")
+        # Initialize with InMemory backend if Redis is disabled
+        FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
+        logger.info("FastAPI Cache initialized with InMemory backend.")
 
+    yield # Application runs here
+    
+    logger.info("Завершение работы приложения...")
+    if settings.USE_REDIS and cleanup_broker.is_started:
+        # Stop FastStream broker only if it was started
+        try:
+             await cleanup_broker.close()
+             logger.info("FastStream broker stopped.")
+        except Exception as e:
+             logger.exception("Error stopping FastStream broker.")
+            
+    # Close cache connection if Redis was used and initialized
+    if settings.USE_REDIS and redis_cache:
+        try:
+            await FastAPICache.clear() # Clear cache keys if needed
+            await redis_cache.close()
+            logger.info("Redis cache connection closed.")
+        except Exception as e:
+             logger.exception("Error closing Redis cache connection.")
+    else:
+         # Clear in-memory cache if needed (optional)
+         await FastAPICache.clear()
+         logger.info("InMemory cache cleared.")
+
+
+# Unified Error Handlers
+
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handles FastAPI validation errors, returning a unified error response."""
+    errors = []
+    for error in exc.errors():
+        errors.append(ErrorDetail(
+            field=".".join(str(loc) for loc in error["loc"]) if "loc" in error else None,
+            message=error["msg"],
+            type=error["type"]
+        ))
+    logger.warning(f"Validation error for {request.method} {request.url.path}: {errors}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(error=errors).dict()
+    )
+
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Handles FastAPI/Starlette HTTP exceptions, returning a unified error response."""
+    error_detail = ErrorDetail(message=exc.detail, type="http_exception")
+    logger.warning(f"HTTP exception for {request.method} {request.url.path}: {exc.status_code} - {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(error=error_detail).dict(),
+        headers=getattr(exc, "headers", None) # Preserve original headers if any
+    )
+
+async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handles all other exceptions, returning a generic unified error response."""
+    # Log the full traceback for unexpected errors
+    tb_str = ''.join(traceback.format_exception(etype=type(exc), value=exc, tb=exc.__traceback__))
+    logger.error(f"Unhandled exception for {request.method} {request.url.path}:\n{tb_str}")
+
+    error_detail = ErrorDetail(
+        message="Internal Server Error" if not DEBUG else str(exc), # Avoid leaking details in production
+        type=exc.__class__.__name__
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=ErrorResponse(error=error_detail).dict()
+    )
+
+# Unified Error Response Model
+class ErrorDetail(BaseModel):
+    field: str | None = None
+    message: str
+    type: str | None = None
+
+class ErrorResponse(BaseModel):
+    success: bool = False
+    error: ErrorDetail | List[ErrorDetail]
+
+def create_app() -> FastAPI:
+    """
+    Создает и настраивает экземпляр FastAPI приложения.
+    Включает в себя настройку middleware, регистрацию роутеров,
+    обработчики ошибок и статические файлы.
+    """
+    
+    app = FastAPI(
+        title=event_config.name,
+        description=event_config.description,
+        version=event_config.version,
+        debug=DEBUG,
+        lifespan=lifespan,
+        # Add unified exception handlers
+        exception_handlers={
+            RequestValidationError: validation_exception_handler,
+            StarletteHTTPException: http_exception_handler,
+            Exception: general_exception_handler
+        }
+    )
+    
+    # Настройка middleware
+    setup_middleware(app)
+    
     # Монтирование статических файлов
     app.mount(
         '/static',

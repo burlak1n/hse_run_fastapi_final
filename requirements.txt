@@ -5,7 +5,7 @@ pydantic_settings==2.8.1
 aiosqlite==0.21.0
 alembic==1.15.1
 SQLAlchemy==2.0.39
-loguru==0.7.3
+loguru==0.7.2
 
 sqladmin==0.20.1
 segno==1.6.6
@@ -13,3 +13,14 @@ Pillow==10.3.0
 aiogram==3.19.0
 
 reportlab==4.1.0
+
+# CSRF Protection
+fastapi-csrf-protect==1.0.3 # Removed CSRF dependency
+
+# FastStream dependencies
+faststream==0.5.11
+faststream[redis]==0.5.11
+# FastAPI Cache
+fastapi-cache2[redis]==2.3.0
+# Pin redis version for compatibility with faststream 0.5.11
+redis==4.6.0

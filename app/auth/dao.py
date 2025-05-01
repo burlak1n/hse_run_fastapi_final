@@ -18,7 +18,8 @@ class UsersDAO(BaseDAO):
         """
         Находит пользователя по ID с возможностью загрузки связанных данных.
         """
-        logger.info(f"Поиск пользователя с ID {user_id} с опциями: {options}")
+        options_count = len(options) if options else 0
+        logger.info(f"Поиск пользователя с ID {user_id} с {options_count} опциями загрузки.")
         try:
             query = select(self.model).filter_by(id=user_id)
             if options:

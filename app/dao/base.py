@@ -18,50 +18,6 @@ class BaseDAO(Generic[T]):
         if self.model is None:
             raise ValueError("Модель должна быть указана в дочернем классе")
 
-    async def _validate_input(self, data: dict) -> dict:
-        """
-        Проверяет входные данные на потенциальные SQL-инъекции
-        
-        Args:
-            data: Словарь с данными для проверки
-            
-        Returns:
-            Проверенный словарь данных
-            
-        Raises:
-            ValueError: Если обнаружены потенциально опасные данные
-        """
-        import re
-        
-        # Паттерны потенциальных SQL-инъекций
-        sql_patterns = [
-            r"(\b(select|insert|update|delete|drop|alter|exec|union|where)\b)",
-            r"(--|;|\/\*|\*\/|@@|char|nchar|varchar|nvarchar|cursor|declare)",
-            r"(\bfrom\b.*\bwhere\b|\bunion\b.*\bselect\b)",
-            r"(xp_cmdshell|xp_reg|sp_configure|sp_executesql)"
-        ]
-        
-        # Поля, для которых разрешены специальные символы
-        allowed_special_fields = ['token', 'password', 'hash', 'key', 'secret']
-        
-        for key, value in data.items():
-            if isinstance(value, str):
-                # Пропускаем проверку для полей токенов и паролей
-                if key in allowed_special_fields:
-                    continue
-                    
-                # Проверяем строку на наличие паттернов SQL-инъекций
-                value_lower = value.lower()
-                for pattern in sql_patterns:
-                    if re.search(pattern, value_lower):
-                        logger.warning(f"Обнаружен потенциально опасный ввод: {key}={value}")
-                        raise ValueError(f"Потенциально опасный ввод в поле '{key}'")
-                        
-                # Экранируем специальные символы
-                data[key] = value.replace("'", "''").replace("\\", "\\\\")
-        
-        return data
-
     async def find_one_or_none_by_id(self, data_id: int):
         try:
             # Проверяем, что ID целое число
@@ -76,14 +32,15 @@ class BaseDAO(Generic[T]):
             logger.info(log_message)
             return record
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при поиске записи с ID {data_id}: {e}")
+            # Include model name and ID in error log
+            logger.exception(f"DB error finding {self.model.__name__} by ID {data_id}")
             raise
 
     async def find_one_or_none(self, filters: BaseModel) -> Optional[T]:
         try:
             filter_dict = filters.model_dump(exclude_unset=True)
             # Проверяем входные данные
-            filter_dict = await self._validate_input(filter_dict)
+            # filter_dict = await self._validate_input(filter_dict)
             
             logger.info(f"Поиск одной записи {self.model.__name__} по фильтрам: {filter_dict}")
             query = select(self.model).filter_by(**filter_dict)
@@ -93,14 +50,15 @@ class BaseDAO(Generic[T]):
             logger.info(log_message)
             return record
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при поиске записи по фильтрам {filter_dict}: {e}")
+            # Include model name and filter keys in error log
+            logger.exception(f"DB error finding {self.model.__name__} with filters {list(filter_dict.keys())}")
             raise
 
     async def find_all(self, filters: BaseModel | None = None):
         try:
             filter_dict = filters.model_dump(exclude_unset=True) if filters else {}
             # Проверяем входные данные
-            filter_dict = await self._validate_input(filter_dict)
+            # filter_dict = await self._validate_input(filter_dict)
             
             logger.info(f"Поиск всех записей {self.model.__name__} по фильтрам: {filter_dict}")
             query = select(self.model).filter_by(**filter_dict)
@@ -109,23 +67,29 @@ class BaseDAO(Generic[T]):
             logger.info(f"Найдено {len(records)} записей.")
             return records
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при поиске всех записей по фильтрам {filter_dict}: {e}")
+            # Include model name and filter keys in error log
+            logger.exception(f"DB error finding all {self.model.__name__} with filters {list(filter_dict.keys())}")
             raise
 
     async def add(self, values: BaseModel):
         try:
             values_dict = values.model_dump(exclude_unset=True)
-            # Проверяем входные данные
-            values_dict = await self._validate_input(values_dict)
+            # values_dict = await self._validate_input(values_dict) # Removed validation call
             
-            logger.info(f"Добавление записи {self.model.__name__} с параметрами: {values_dict}")
+            # Log keys being added, not values for security
+            logger.info(f"Adding {self.model.__name__} with keys: {list(values_dict.keys())}")
             new_instance = self.model(**values_dict)
             self._session.add(new_instance)
-            logger.info(f"Запись {self.model.__name__} успешно добавлена.")
+            # Log successful add before flush
+            logger.info(f"{self.model.__name__} instance prepared for add.") 
             await self._session.flush()
+            # Log after successful flush, potentially with the new ID if available
+            logger.info(f"{self.model.__name__} added successfully with ID: {getattr(new_instance, 'id', '?')}")
             return new_instance
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при добавлении записи: {e}")
+            # Include model name and keys being added in error log
+            logger.exception(f"DB error adding {self.model.__name__} with keys {list(values_dict.keys())}")
+            await self._session.rollback() # Ensure rollback on error
             raise
 
     async def add_many(self, instances: List[BaseModel]):
@@ -138,14 +102,17 @@ class BaseDAO(Generic[T]):
             await self._session.flush()
             return new_instances
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при добавлении нескольких записей: {e}")
+            # Include model name in error log
+            logger.exception(f"DB error adding many {self.model.__name__}")
+            await self._session.rollback()
             raise
 
     async def update(self, filters: BaseModel, values: BaseModel):
         filter_dict = filters.model_dump(exclude_unset=True)
         values_dict = values.model_dump(exclude_unset=True)
+        # Log filter keys and keys being updated
         logger.info(
-            f"Обновление записей {self.model.__name__} по фильтру: {filter_dict} с параметрами: {values_dict}")
+            f"Updating {self.model.__name__} filtered by {list(filter_dict.keys())} with keys: {list(values_dict.keys())}")
         try:
             query = (
                 sqlalchemy_update(self.model)
@@ -158,14 +125,17 @@ class BaseDAO(Generic[T]):
             await self._session.flush()
             return result.rowcount
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при обновлении записей: {e}")
+            # Include model name, filter keys, and updated keys in error log
+            logger.exception(f"DB error updating {self.model.__name__} filtered by {list(filter_dict.keys())} with keys {list(values_dict.keys())}")
+            await self._session.rollback()
             raise
 
     async def delete(self, filters: BaseModel):
         filter_dict = filters.model_dump(exclude_unset=True)
-        logger.info(f"Удаление записей {self.model.__name__} по фильтру: {filter_dict}")
+        # Log filter keys being used for deletion
+        logger.info(f"Deleting {self.model.__name__} filtered by {list(filter_dict.keys())}")
         if not filter_dict:
-            logger.error("Нужен хотя бы один фильтр для удаления.")
+            logger.error("Delete operation requires at least one filter.")
             raise ValueError("Нужен хотя бы один фильтр для удаления.")
         try:
             query = sqlalchemy_delete(self.model).filter_by(**filter_dict)
@@ -174,7 +144,9 @@ class BaseDAO(Generic[T]):
             await self._session.flush()
             return result.rowcount
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при удалении записей: {e}")
+            # Include model name and filter keys in error log
+            logger.exception(f"DB error deleting {self.model.__name__} filtered by {list(filter_dict.keys())}")
+            await self._session.rollback()
             raise
 
     async def count(self, filters: BaseModel | None = None):
@@ -187,7 +159,8 @@ class BaseDAO(Generic[T]):
             logger.info(f"Найдено {count} записей.")
             return count
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при подсчете записей: {e}")
+            # Include model name and filter keys in error log
+            logger.exception(f"DB error counting {self.model.__name__} filtered by {list(filter_dict.keys())}")
             raise
 
     async def bulk_update(self, records: List[BaseModel]):
@@ -212,5 +185,7 @@ class BaseDAO(Generic[T]):
             await self._session.flush()
             return updated_count
         except SQLAlchemyError as e:
-            logger.error(f"Ошибка при массовом обновлении: {e}")
+            # Include model name in error log
+            logger.exception(f"DB error during bulk update of {self.model.__name__}")
+            await self._session.rollback()
             raise

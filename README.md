@@ -133,19 +133,19 @@ backend/
     ```
 
 2.  **Создайте и активируйте виртуальное окружение** (рекомендуется):
-    ```bash
+   ```bash
     python -m venv venv
     source venv/bin/activate  # для Linux/macOS
     # venv\\Scripts\\activate  # для Windows
-    ```
+   ```
 
 3.  **Установите зависимости**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 4.  **Создайте файл `.env`** в директории `backend` по образу `.env.example` (если он есть) или со следующими минимальными переменными:
-    ```env
+   ```env
     # Секретный ключ для различных операций (например, подписи сессий)
     # Сгенерируйте надежный ключ: openssl rand -hex 32
     SECRET_KEY=ва_секретный_ключ
@@ -169,13 +169,13 @@ backend/
     **Важно**: Убедитесь, что директория `data/` существует, если используете SQLite.
 
 5.  **Примените миграции базы данных**:
-    ```bash
+   ```bash
     alembic upgrade head
     ```
     Это создаст таблицы в базе данных согласно моделям SQLAlchemy.
 
 6.  **Запустите приложение**:
-    ```bash
+   ```bash
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     ```
     *   `--reload`: Автоматический перезапуск при изменении кода (для разработки).
@@ -191,13 +191,13 @@ backend/
 ## Миграции базы данных (Alembic)
 
 *   **Создание новой миграции** (после изменения моделей в `app/*/models.py`):
-    ```bash
+   ```bash
     alembic revision --autogenerate -m "Краткое описание изменений"
-    ```
+   ```
 *   **Применение миграций**:
-    ```bash
-    alembic upgrade head
-    ```
+   ```bash
+   alembic upgrade head
+   ```
 *   **Откат последней миграции**:
     ```bash
     alembic downgrade -1
