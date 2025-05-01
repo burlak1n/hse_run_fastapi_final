@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 
 
 class BlockFilter(BaseModel):
@@ -98,7 +98,7 @@ class HintResponse(BaseModel):
 # Schema for insider information
 class InsiderInfo(BaseModel):
     id: int
-    full_name: Optional[str] = None
+    full_name: str
     telegram_username: Optional[str] = None
 
 # Response schema for GET /riddle/{riddle_id}/insiders endpoint
@@ -146,3 +146,26 @@ class CommandStats(BaseModel):
 class GetCommandsStatsResponse(BaseModel):
     ok: bool
     stats: List[CommandStats]
+
+class AnswerInfo(BaseModel):
+    id: int
+    answer_text: str
+
+class QuestionStructureInfo(BaseModel):
+    id: int
+    title: str
+    image_path: Optional[str] = None
+    hint_path: Optional[str] = None
+    text_answered: Optional[str] = None
+    image_path_answered: Optional[str] = None
+
+class BlockStructureInfo(BaseModel):
+    id: int
+    title: str
+    language_id: int
+    questions: List[QuestionStructureInfo] = []
+
+class EventQuestStructureResponse(BaseModel):
+    ok: bool = True
+    event_name: str
+    blocks: List[BlockStructureInfo] = []

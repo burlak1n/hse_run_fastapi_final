@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.auth.dao import CommandsDAO, UsersDAO, EventsDAO
-from app.auth.models import User, CommandsUser, Command
+from app.auth.dao import CommandsDAO, UsersDAO, EventsDAO, LanguagesDAO
+from app.auth.models import User, CommandsUser, Command, Language
 from app.dependencies.dao_dep import get_session_with_commit
 from app.dependencies.quest_dep import get_authenticated_user_and_command
 from app.dependencies.auth_dep import require_role
@@ -12,7 +12,8 @@ from app.logger import logger
 from app.quest.schemas import (
     BlockFilter,
     FindAnswersForQuestion,
-    FindQuestionsForBlock, FindInsidersForQuestion, MarkInsiderAttendanceRequest, AnswerRequest, GetAllBlocksResponse, GetBlockResponse, CheckAnswerResponse, HintResponse, RiddleInsidersResponse, MarkAttendanceResponse, GetInsiderTasksResponse, GetCommandsStatsResponse
+    FindQuestionsForBlock, FindInsidersForQuestion, MarkInsiderAttendanceRequest, AnswerRequest, GetAllBlocksResponse, GetBlockResponse, CheckAnswerResponse, HintResponse, RiddleInsidersResponse, MarkAttendanceResponse, GetInsiderTasksResponse, GetCommandsStatsResponse,
+    EventQuestStructureResponse, BlockStructureInfo, QuestionStructureInfo
 )
 from app.quest.models import Attempt, AttemptType, Question
 from sqlalchemy.orm import selectinload
@@ -522,5 +523,79 @@ async def mark_insider_attendance(
     except Exception as e:
         logger.error(f"Ошибка при отметке посещения инсайдером {scanner_user.id} (вопрос {request.question_id}, команда {request.command_id}): {str(e)}", exc_info=True)
         await session.rollback()
+        raise InternalServerErrorException
+
+@router.get("/events/{event_name}/quest-structure", response_model=EventQuestStructureResponse)
+async def get_event_quest_structure(
+    event_name: str,
+    session: AsyncSession = Depends(get_session_with_commit),
+    user: User = Depends(require_role(["organizer"])) 
+):
+    """
+    Возвращает полную структуру блоков и загадок для указанного события.
+    Доступно только организаторам.
+    """
+    logger.info(f"Организатор {user.id} запрашивает структуру квеста для события '{event_name}'")
+    try:
+        events_dao = EventsDAO(session)
+        event = await events_dao.find_one_or_none_by_name(event_name)
+        if not event:
+            logger.warning(f"Событие '{event_name}' не найдено при запросе структуры квеста.")
+            raise EventNotFoundException(detail=f"Event '{event_name}' not found.")
+        
+        event_id = event.id
+        logger.info(f"Найдено событие '{event_name}' с ID {event_id}")
+
+        languages_dao = LanguagesDAO(session)
+        event_languages = await languages_dao.find_all_by_event(event_id)
+        event_language_ids = [lang.id for lang in event_languages]
+
+        if not event_language_ids:
+            logger.info(f"Для события '{event_name}' не найдено языков. Возвращаем пустую структуру.")
+            return EventQuestStructureResponse(event_name=event_name, blocks=[])
+
+        logger.info(f"Найдены языки для события '{event_name}': {event_language_ids}")
+
+        blocks_dao = BlocksDAO(session)
+        # Use selectinload to efficiently load related questions
+        blocks = await blocks_dao.find_all(
+            filters=[Block.language_id.in_(event_language_ids)],
+            options=[selectinload(Block.questions)]
+        )
+        logger.info(f"Найдено {len(blocks)} блоков для языков события '{event_name}'")
+
+        # Sort blocks by order
+        blocks.sort(key=lambda b: b.order)
+
+        response_blocks = []
+        for block in blocks:
+            response_questions = [
+                QuestionStructureInfo(
+                    id=q.id,
+                    title=q.title,
+                    image_path=q.image_path,
+                    hint_path=q.hint_path,
+                    text_answered=q.text_answered,
+                    image_path_answered=q.image_path_answered
+                )
+                for q in sorted(block.questions, key=lambda x: x.id) # Sort questions for consistency
+            ]
+            
+            response_blocks.append(
+                BlockStructureInfo(
+                    id=block.id,
+                    title=block.title,
+                    language_id=block.language_id,
+                    questions=response_questions,
+                )
+            )
+
+        logger.info(f"Структура квеста для события '{event_name}' успешно сформирована.")
+        return EventQuestStructureResponse(event_name=event_name, blocks=response_blocks)
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Ошибка при получении структуры квеста для события '{event_name}': {str(e)}", exc_info=True)
         raise InternalServerErrorException
 

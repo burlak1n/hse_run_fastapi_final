@@ -676,21 +676,23 @@ class AdminQuestView(AdminPage):
                     users_info_result = await session.execute(users_info_query)
                     users_map = {user.id: user for user in users_info_result.unique().scalars().all()}
 
-                    # Получаем связки CommandsUser и ЗАГРУЖАЕМ команды с языком
+                    # Получаем связки CommandsUser и ЗАГРУЖАЕМ команды с языком И пользователями
                     commands_user_query = select(CommandsUser).options(
-                        selectinload(CommandsUser.command).selectinload(Command.language)
+                        selectinload(CommandsUser.command).selectinload(Command.language),
+                        selectinload(CommandsUser.command).selectinload(Command.users) # Загружаем пользователей команды
                     ).where(CommandsUser.user_id.in_(user_ids))
                     commands_user_result = await session.execute(commands_user_query)
                     
                     commands_map = {}
-                    # Создаем карту user_id -> {id, name, language_name}
+                    # Создаем карту user_id -> {id, name, language_name, participants_count}
                     for cu in commands_user_result.unique().scalars().all():
                         command_data = None
                         if cu.command:
                             command_data = {
                                 "id": cu.command.id,
                                 "name": cu.command.name,
-                                "language": cu.command.language.name if cu.command.language else None
+                                "language": cu.command.language.name if cu.command.language else None,
+                                "participants_count": len(cu.command.users) # Считаем участников
                             }
                         commands_map[cu.user_id] = command_data
                         
@@ -746,6 +748,7 @@ class AdminQuestView(AdminPage):
                                 # Данные команды (как раньше)
                                 "team": command_data["name"] if command_data else None,
                                 "team_language": command_data["language"] if command_data else None,
+                                "team_participants_count": command_data["participants_count"] if command_data else None, # Добавляем число участников
                                 "attempts": user_attempts_map[user_id] # Список всех попыток
                             }
                             top_users_data.append(user_data)

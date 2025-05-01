@@ -340,7 +340,12 @@
                 
                 if (!targetScores[user.team]) {
                     // Инициализируем объект для команды
-                    targetScores[user.team] = { score: 0, points: 0, money: 0 };
+                    targetScores[user.team] = { 
+                        score: 0, 
+                        points: 0, 
+                        money: 0,
+                        participants_count: user.team_participants_count || 0 // Сохраняем кол-во участников
+                    };
                 }
                 // Используем уже рассчитанные баллы и монеты пользователя
                 targetScores[user.team].points += user.calculated_score;
@@ -356,7 +361,8 @@
                 name: name, 
                 score: data.score, 
                 points: data.points, 
-                money: data.money 
+                money: data.money,
+                participants_count: data.participants_count // Передаем кол-во участников
             }))
             .sort((a, b) => b.score - a.score);
         renderTopTeamsByScore(sortedTeamsRu, 'top-teams-ru-by-score-list');
@@ -367,7 +373,8 @@
                 name: name, 
                 score: data.score, 
                 points: data.points, 
-                money: data.money 
+                money: data.money, 
+                participants_count: data.participants_count // Передаем кол-во участников
             }))
             .sort((a, b) => b.score - a.score);
         renderTopTeamsByScore(sortedTeamsEn, 'top-teams-en-by-score-list');
@@ -397,7 +404,7 @@
             teamItem.innerHTML = `
                 <div>
                     <span class="user-rank ${rankClass}">${index + 1}</span>
-                    <span>${team.name || 'Без названия'}</span>
+                    <span>${team.name || 'Без названия'} <small>(${team.participants_count || '?'} чел.)</small></span>
                 </div>
                 <span class="team-score">${team.score.toFixed(1) || 0} <small>${details}</small></span>
             `;

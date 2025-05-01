@@ -5,18 +5,20 @@ from sqlalchemy.orm import selectinload, joinedload
 import io
 import base64
 from typing import Optional, Union, List, Dict, Any
-
-from app.auth.models import User, CommandsUser, Command, InsiderInfo
+from app.auth.models import User, CommandsUser, Command, InsiderInfo, Event
 from app.auth.utils import set_tokens, generate_qr_image
 from app.dependencies.auth_dep import get_access_token, get_current_user
 from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
 from app.auth.dao import CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, UsersDAO, SessionDAO, EventsDAO, RolesDAO, InsidersInfoDAO, ProgramDAO
-from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter, UpdateProfileRequest, ProgramScoreAdd, ProgramScoreInfo, ProgramScoreTotal
+from app.auth.schemas import CommandBase, CommandInfo, CommandName, CommandEdit, CommandsUserBase, CompleteRegistrationRequest, RoleModel, SUserInfo, TelegramAuthData, UserFindCompleteRegistration, UserMakeCompleteRegistration, UserTelegramID, SUserAddDB, EventID, ParticipantInfo, RoleFilter, UpdateProfileRequest, ProgramScoreAdd, ProgramScoreInfo, ProgramScoreTotal, CommandLeaderboardData, CommandLeaderboardResponse, CommandLeaderboardEntry
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException
 from app.logger import logger
 from app.config import settings
 from fastapi import status
+from app.quest.dao import AttemptsDAO
+from app.quest.models import Attempt, AttemptType, Question, Block
+from sqlalchemy import select, func
 
 router = APIRouter()
 
@@ -182,6 +184,14 @@ async def get_me(
         
         commands_info.append(command_info)
 
+    # Получаем баллы пользователя
+    total_score = 0
+    try:
+        program_dao = ProgramDAO(session)
+        total_score = await program_dao.get_total_score(user.id)
+    except Exception as e:
+        logger.warning(f"Не удалось получить баллы для пользователя {user.id}: {e}")
+
     # Возвращаем информацию о пользователе
     user_info = {
         "id": user.id,
@@ -190,7 +200,8 @@ async def get_me(
         "telegram_username": user.telegram_username,
         "role": RoleModel(id=user.role.id, name=user.role.name).model_dump() if user.role else None,
         "commands": commands_info,
-        "is_looking_for_friends": user.is_looking_for_friends
+        "is_looking_for_friends": user.is_looking_for_friends,
+        "score": total_score  # Добавляем баллы пользователя
     }
 
     # Добавляем информацию для инсайдера или СтС, если есть запись в insiders_info
@@ -1022,15 +1033,13 @@ async def get_registration_stats(
                 status_code=500
             )
         
-        # Импортируем необходимые функции для загрузки связанных объектов
-        from sqlalchemy.orm import selectinload
-        # Импортируем модель Command
-        from app.auth.models import Command
-        
         # Получаем команды текущего события с загрузкой связанных пользователей
         teams = await commands_dao.find_all_by_event(
             curr_event_id,
-            options=[selectinload(Command.users)]
+            options=[
+                selectinload(Command.language),
+                selectinload(Command.users)
+            ]
         )
         
         total_teams = len(teams)
@@ -1328,5 +1337,107 @@ async def qr_add_score(
         return JSONResponse(
             status_code=500,
             content={"ok": False, "message": "Ошибка при добавлении баллов"}
+        )
+
+@router.get("/commands/leaderboard/{event_name}", response_model=CommandLeaderboardResponse)
+async def get_command_leaderboard(
+    event_name: str,
+    session: AsyncSession = Depends(get_session_without_commit),
+    user: Optional[User] = Depends(get_current_user)
+):
+    """
+    Возвращает список команд для указанного события.
+    Счет (total_score) рассчитывается как: coins * 0.5 + score,
+    где score/coins - сумма AttemptType.score/money для ВСЕХ верных попыток участников.
+    Возвращает: command_name, total_score, language_name.
+    Доступно для ВСЕХ пользователей (авторизация не требуется).
+    """
+    logger.info(f"Запрос лидерборда команд для события '{event_name}' (глобальный score/money, формула: coins*0.5+score, доступен всем)")
+
+    try:
+        events_dao = EventsDAO(session)
+        commands_dao = CommandsDAO(session)
+
+        # 1. Получаем ID события по имени
+        target_event_id = await events_dao.get_event_id_by_name(event_name=event_name)
+        if not target_event_id:
+            logger.warning(f"Событие с именем '{event_name}' не найдено для лидерборда")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                # Используем новую структуру ответа
+                content=CommandLeaderboardResponse(ok=False, message=f"Событие '{event_name}' не найдено").dict()
+            )
+
+        # 2. Получаем все команды указанного события, ЗАГРУЖАЕМ язык и пользователей
+        commands = await commands_dao.find_all_by_event(
+            target_event_id,
+            options=[
+                selectinload(Command.language),
+                selectinload(Command.users).selectinload(CommandsUser.user)
+            ]
+        )
+
+        if not commands:
+            logger.info(f"В событии '{event_name}' нет команд для лидерборда")
+            # Возвращаем успешный ответ с пустым списком в новой структуре
+            return CommandLeaderboardResponse(ok=True, data=CommandLeaderboardData(leaderboard=[]))
+
+        # 4. Вычисляем ГЛОБАЛЬНЫЙ score (сумма score) и coins (сумма money) для каждой команды
+        leaderboard_results: List[CommandLeaderboardEntry] = [] # Используем новую схему
+        for command in commands:
+            # cmd_id = command.id # Не нужен в ответе
+            user_ids = [cu.user_id for cu in command.users if cu.user_id is not None]
+
+            total_score_base = 0.0 # Сумма AttemptType.score
+            total_coins_base = 0   # Сумма AttemptType.money
+
+            if user_ids:
+                # Запрос для суммирования базовых очков и монет за ВСЕ верные попытки пользователей команды
+                stmt = (
+                    select(
+                        func.sum(AttemptType.score).label("total_score"),
+                        func.sum(AttemptType.money).label("total_coins")
+                    )
+                    .join(Attempt, Attempt.attempt_type_id == AttemptType.id)
+                    .where(
+                        Attempt.user_id.in_(user_ids),
+                        Attempt.is_true == True,
+                    )
+                )
+                result = await session.execute(stmt)
+                scores = result.fetchone()
+                if scores and scores.total_score is not None:
+                    total_score_base = float(scores.total_score)
+                if scores and scores.total_coins is not None:
+                    total_coins_base = int(scores.total_coins)
+
+            # Применяем формулу: total_score = (coins * 0.5) + score
+            final_total_score = (total_coins_base * 0.5) + total_score_base
+
+            # Применяем фильтр >= 2 к финальному баллу
+            if final_total_score > 2:
+                # Формируем объект CommandLeaderboardEntry
+                leaderboard_results.append(CommandLeaderboardEntry(
+                    # command_id=cmd_id, # Удалено из схемы
+                    command_name=command.name,
+                    total_score=final_total_score, # Рассчитано по формуле
+                    # coins=total_coins_base, # Не возвращаем
+                    language_name=command.language.name if command.language else None, # Возвращаем
+                    # participants_count=len(command.users) # Удалено из схемы
+                ))
+
+        logger.info(f"Лидерборд для события '{event_name}' (score={total_score_base}, coins={total_coins_base}, final=coins*0.5+score, filter: >= 2) успешно сформирован, найдено {len(leaderboard_results)} команд")
+
+        # 5. Сортируем по убыванию финального очка
+        leaderboard_results.sort(key=lambda x: x.total_score, reverse=True)
+
+        # Возвращаем результат в новой структуре
+        return CommandLeaderboardResponse(ok=True, data=CommandLeaderboardData(leaderboard=leaderboard_results))
+
+    except Exception as e:
+        logger.error(f"Ошибка при формировании лидерборда команд для события '{event_name}' (глобальный score/money): {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=CommandLeaderboardResponse(ok=False, message="Внутренняя ошибка сервера при формировании лидерборда").dict()
         )
 

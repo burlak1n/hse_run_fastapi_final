@@ -329,7 +329,8 @@ def create_app() -> FastAPI:
     
     # Добавляем rate limiting только в production
     if not DEBUG:
-        app.add_middleware(RateLimitMiddleware)
+        # app.add_middleware(RateLimitMiddleware) # Убираем ограничение запросов
+        pass # Добавляем pass, так как блок if не может быть пустым
 
     # Добавляем защиту от SQL-инъекций
     app.add_middleware(SQLInjectionProtectionMiddleware)

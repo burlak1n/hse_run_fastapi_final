@@ -5,10 +5,14 @@ from typing import Annotated
 from sqlalchemy import func, TIMESTAMP, Integer, inspect
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase, declared_attr
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine, AsyncSession
-from app.config import database_url
+from ..config import database_url
 
 
-engine = create_async_engine(url=database_url)
+engine = create_async_engine(
+    url=database_url, 
+    pool_size=50,         # Базовый размер пула
+    max_overflow=300      # Максимальное количество дополнительных соединений (50 + 150 = 200)
+)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 str_uniq = Annotated[str, mapped_column(unique=True, nullable=False)]
 int_uniq = Annotated[int, mapped_column(unique=True, nullable=False)]

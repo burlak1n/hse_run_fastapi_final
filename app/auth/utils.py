@@ -7,7 +7,6 @@ from uuid import uuid4
 import segno
 import contextlib
 import io
-from functools import lru_cache
 
 def set_tokens(response: Response, session_token: str):
     """
@@ -55,7 +54,6 @@ async def create_session(user_id: int) -> Session:
     return session
 
 
-@lru_cache(maxsize=1)
 def generate_qr_code(link, error='L'):
     """
     Генерирует QR-код по ссылке с использованием библиотеки segno.

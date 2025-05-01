@@ -182,3 +182,21 @@ class ProgramScoreTotal(BaseModel):
     user_id: int = Field(description="Идентификатор пользователя")
     total_score: float = Field(description="Сумма баллов")
     history: List[ProgramScoreInfo] = Field(description="История начисления баллов")
+
+# Новая схема для элементов лидерборда
+class CommandLeaderboardEntry(BaseModel):
+    """Схема для одного элемента в лидерборде команд"""
+    command_name: str = Field(description="Название команды")
+    total_score: float = Field(description="Итоговый счет команды (coins * 0.5 + score)")
+    language_name: Optional[str] = Field(default=None, description="Язык команды")
+
+    model_config = ConfigDict(from_attributes=True) # Добавлено для совместимости, если потребуется
+
+# Обновляем обертку данных
+class CommandLeaderboardData(BaseModel):
+    leaderboard: List[CommandLeaderboardEntry] # Используем новую схему
+
+class CommandLeaderboardResponse(BaseModel):
+    ok: bool
+    data: Optional[CommandLeaderboardData] = None
+    message: Optional[str] = None

@@ -442,6 +442,43 @@ class AttemptsDAO(BaseDAO):
             logger.error(f"Ошибка при получении всех успешных попыток для команд {command_ids}: {e}")
             raise
 
+    async def get_aggregated_scores_for_commands(self, command_ids: List[int]) -> Dict[int, Dict[str, int]]:
+        """
+        Вычисляет агрегированные базовые очки (sum(score)) и монеты (sum(money))
+        для списка команд на основе их успешных попыток.
+        Возвращает словарь {command_id: {"base_score": ..., "coins": ...}}.
+        """
+        if not command_ids:
+            return {}
+        try:
+            query = (
+                select(
+                    Attempt.command_id,
+                    func.sum(AttemptType.score).label("base_score"),
+                    func.sum(AttemptType.money).label("coins")
+                )
+                .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+                .where(
+                    Attempt.command_id.in_(command_ids),
+                    Attempt.is_true == True
+                )
+                .group_by(Attempt.command_id)
+            )
+            result = await self._session.execute(query)
+            # Создаем словарь с результатами, обрабатывая None значения
+            aggregated_data = {
+                row.command_id: {
+                    "base_score": int(row.base_score) if row.base_score is not None else 0,
+                    "coins": int(row.coins) if row.coins is not None else 0
+                }
+                for row in result.all()
+            }
+            logger.debug(f"Получены агрегированные score/coins для {len(aggregated_data)} команд из {len(command_ids)} запрошенных.")
+            return aggregated_data
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при агрегации score/coins для команд {command_ids}: {e}")
+            raise # Передаем ошибку выше
+
     async def try_complete_question_block(self, command_id: int, block_id: int, user_id: int, last_question_id: int) -> bool:
         """
         Проверяет, завершен ли блок вопросов командой, и если да,
