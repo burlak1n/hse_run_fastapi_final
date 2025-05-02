@@ -15,8 +15,9 @@ from app.quest.schemas import (
     FindQuestionsForBlock, FindInsidersForQuestion, MarkInsiderAttendanceRequest, AnswerRequest, GetAllBlocksResponse, GetBlockResponse, CheckAnswerResponse, HintResponse, RiddleInsidersResponse, MarkAttendanceResponse, GetInsiderTasksResponse, GetCommandsStatsResponse,
     EventQuestStructureResponse, BlockStructureInfo, QuestionStructureInfo
 )
-from app.quest.models import Attempt, AttemptType, Question
+from app.quest.models import Attempt, AttemptType, Question, Block
 from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 
 from app.quest.utils import compare_strings, build_block_response, get_riddle_data
 
@@ -525,7 +526,7 @@ async def mark_insider_attendance(
         await session.rollback()
         raise InternalServerErrorException
 
-@router.get("/events/{event_name}/quest-structure", response_model=EventQuestStructureResponse)
+@router.get("/events/{event_name}/answers", response_model=EventQuestStructureResponse)
 async def get_event_quest_structure(
     event_name: str,
     session: AsyncSession = Depends(get_session_with_commit),
@@ -538,37 +539,50 @@ async def get_event_quest_structure(
     logger.info(f"Организатор {user.id} запрашивает структуру квеста для события '{event_name}'")
     try:
         events_dao = EventsDAO(session)
-        event = await events_dao.find_one_or_none_by_name(event_name)
-        if not event:
-            logger.warning(f"Событие '{event_name}' не найдено при запросе структуры квеста.")
+        # Сначала получаем ID события по имени
+        event_id = await events_dao.get_event_id_by_name(event_name)
+        if not event_id:
+            logger.warning(f"Событие '{event_name}' не найдено при запросе структуры квеста (ID не найден).")
             raise EventNotFoundException(detail=f"Event '{event_name}' not found.")
-        
-        event_id = event.id
+        # Затем получаем сам объект события по ID
+        event = await events_dao.find_one_or_none_by_id(event_id)
+        if not event:
+            # Эта ситуация маловероятна, если ID был найден, но лучше проверить
+            logger.error(f"Событие с ID {event_id} (имя: '{event_name}') не найдено после получения ID.")
+            raise EventNotFoundException(detail=f"Event '{event_name}' (ID: {event_id}) could not be fetched.")
+
         logger.info(f"Найдено событие '{event_name}' с ID {event_id}")
 
-        languages_dao = LanguagesDAO(session)
-        event_languages = await languages_dao.find_all_by_event(event_id)
-        event_language_ids = [lang.id for lang in event_languages]
+        # Получаем только ID языков напрямую, чтобы избежать ошибки в find_all
+        language_query = select(Language.id)
+        language_result = await session.execute(language_query)
+        event_language_ids = language_result.scalars().all()
 
         if not event_language_ids:
             logger.info(f"Для события '{event_name}' не найдено языков. Возвращаем пустую структуру.")
             return EventQuestStructureResponse(event_name=event_name, blocks=[])
 
-        logger.info(f"Найдены языки для события '{event_name}': {event_language_ids}")
+        logger.info(f"Найдены ID языков для события '{event_name}': {event_language_ids}")
 
-        blocks_dao = BlocksDAO(session)
-        # Use selectinload to efficiently load related questions
-        blocks = await blocks_dao.find_all(
-            filters=[Block.language_id.in_(event_language_ids)],
-            options=[selectinload(Block.questions)]
+        # --- Изменено начало: Заменяем blocks_dao.find_all на явный select с options ---
+        stmt = (
+            select(Block)
+            .where(Block.language_id.in_(event_language_ids))
+            .options(selectinload(Block.questions))
+            # .order_by(Block.order) # Сортировка будет применена позже
         )
+        result = await session.execute(stmt)
+        blocks = result.scalars().unique().all()
+        # --- Изменено конец ---
+
         logger.info(f"Найдено {len(blocks)} блоков для языков события '{event_name}'")
 
-        # Sort blocks by order
-        blocks.sort(key=lambda b: b.order)
+        # Sort blocks by order in Python - УДАЛЕНО, т.к. нет поля order
+        # blocks.sort(key=lambda b: b.order)
 
         response_blocks = []
         for block in blocks:
+            # Вопросы уже загружены благодаря selectinload
             response_questions = [
                 QuestionStructureInfo(
                     id=q.id,
@@ -591,7 +605,9 @@ async def get_event_quest_structure(
             )
 
         logger.info(f"Структура квеста для события '{event_name}' успешно сформирована.")
-        return EventQuestStructureResponse(event_name=event_name, blocks=response_blocks)
+        # Явно преобразуем в словарь перед возвратом
+        response_data = EventQuestStructureResponse(event_name=event_name, blocks=response_blocks)
+        return response_data.model_dump()
 
     except HTTPException as http_exc:
         raise http_exc
