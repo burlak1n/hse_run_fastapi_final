@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from typing import Optional
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate

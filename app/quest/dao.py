@@ -1,12 +1,11 @@
 from app.logger import logger
 from pydantic import BaseModel
-from sqlalchemy import select, insert, update, delete, and_, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from app.dao.base import BaseDAO
 from app.quest.models import Answer, Block, Question, QuestionInsider, Attempt, AttemptType
 from app.auth.models import User, Command
 from sqlalchemy.exc import SQLAlchemyError
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 

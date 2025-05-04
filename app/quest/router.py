@@ -1,21 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.auth.dao import CommandsDAO, UsersDAO, EventsDAO, LanguagesDAO
+from app.auth.dao import CommandsDAO, UsersDAO, EventsDAO
 from app.auth.models import User, CommandsUser, Command, Language
 from app.dependencies.dao_dep import get_session_with_commit
 from app.dependencies.quest_dep import get_authenticated_user_and_command
 from app.dependencies.auth_dep import require_role
-from typing import Tuple, List
+from typing import Tuple
 
 from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO, QuestionInsiderDAO, AttemptsDAO
 from app.logger import logger
 from app.quest.schemas import (
     BlockFilter,
     FindAnswersForQuestion,
-    FindQuestionsForBlock, FindInsidersForQuestion, MarkInsiderAttendanceRequest, AnswerRequest, GetAllBlocksResponse, GetBlockResponse, CheckAnswerResponse, HintResponse, RiddleInsidersResponse, MarkAttendanceResponse, GetInsiderTasksResponse, GetCommandsStatsResponse,
+    MarkInsiderAttendanceRequest, AnswerRequest, GetAllBlocksResponse, GetBlockResponse, CheckAnswerResponse, HintResponse, RiddleInsidersResponse, MarkAttendanceResponse, GetInsiderTasksResponse, GetCommandsStatsResponse,
     EventQuestStructureResponse, BlockStructureInfo, QuestionStructureInfo
 )
-from app.quest.models import Attempt, AttemptType, Question, Block
+from app.quest.models import Attempt, Block
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
@@ -23,7 +23,6 @@ from app.quest.utils import compare_strings, build_block_response, get_riddle_da
 
 # Import exceptions
 from app.exceptions import (
-    UserNotInCommandException,
     BlockNotFoundException,
     RiddleNotFoundException,
     LanguageMismatchException,
@@ -34,12 +33,8 @@ from app.exceptions import (
     QuestionNotAssignedException,
     AttendanceAlreadyMarkedException,
     CannotMarkUnsolvedException,
-    ForbiddenException,
     InternalServerErrorException,
     EventNotFoundException,
-    TokenExpiredException,
-    NoJwtException,
-    UserNotFoundException
 )
 
 router = APIRouter()

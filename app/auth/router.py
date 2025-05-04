@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Response, Depends, Body, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional
 from app.auth.models import User
 from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import get_access_token, get_current_user
@@ -10,7 +10,6 @@ from app.auth.schemas import CommandInfo, CommandEdit, CompleteRegistrationReque
 from fastapi.responses import JSONResponse
 from app.exceptions import InternalServerErrorException, TokenExpiredException, NotFoundException, ForbiddenException, BadRequestException
 from app.logger import logger
-from app.config import settings
 from fastapi import status
 # Cache imports
 from fastapi_cache.decorator import cache

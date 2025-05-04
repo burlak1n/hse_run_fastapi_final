@@ -1,15 +1,15 @@
 import base64
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
-from sqlalchemy import select, func, distinct
+from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth.dao import (
     UsersDAO, SessionDAO, RolesDAO, InsidersInfoDAO, ProgramDAO, 
     CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, EventsDAO
 )
-from app.auth.models import User, CommandsUser, Command, Role, InsiderInfo, Event
+from app.auth.models import User, CommandsUser, Command
 from app.auth.schemas import (
     TelegramAuthData, CompleteRegistrationRequest, SUserAddDB, 
     UserFindCompleteRegistration, UserMakeCompleteRegistration, RoleFilter,
@@ -17,12 +17,11 @@ from app.auth.schemas import (
     ProgramScoreAdd, ProgramScoreInfo, ProgramScoreTotal,
     CommandLeaderboardData, CommandLeaderboardEntry
 )
-from app.auth.utils import set_tokens, generate_qr_image, user_profile_key_builder
+from app.auth.utils import generate_qr_image
 from app.config import settings
 from app.exceptions import NotFoundException, InternalServerErrorException, BadRequestException, ForbiddenException, TokenExpiredException
 from app.logger import logger
-from app.quest.dao import AttemptsDAO
-from app.quest.models import Attempt, AttemptType, Question, Block
+from app.quest.models import Attempt, AttemptType
 
 # Cache imports
 from fastapi_cache import FastAPICache

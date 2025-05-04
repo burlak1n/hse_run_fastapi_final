@@ -1,12 +1,11 @@
 from contextlib import asynccontextmanager
 import os
-from typing import AsyncGenerator, List, Dict, Any
-from fastapi import FastAPI, APIRouter, Request, Response, status, Depends
+from typing import AsyncGenerator, List
+from fastapi import FastAPI, APIRouter, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import traceback
@@ -14,7 +13,6 @@ from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
 import urllib.parse
-from pathlib import Path
 import uuid
 
 # Import logger and context var from app.logger
@@ -29,7 +27,6 @@ from app.quest.router import router as router_quest
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
 from app.utils.template import render_template
-from app.dependencies.template_dep import get_templates
 from app.config import event_config, DEBUG, BASE_URL, settings
 # Import FastStream broker
 from app.tasks.cleanup import broker as cleanup_broker

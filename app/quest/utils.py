@@ -3,7 +3,7 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.models import Command
 from app.quest.models import Block, Question
-from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO, QuestionInsiderDAO, AttemptsDAO
+from app.quest.dao import QuestionsDAO, QuestionInsiderDAO, AttemptsDAO
 from app.quest.schemas import FindQuestionsForBlock
 from app.logger import logger
 

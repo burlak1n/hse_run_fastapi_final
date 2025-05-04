@@ -5,11 +5,8 @@ import io
 import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Tuple, Optional
-from uuid import uuid4
-from base64 import b64encode
 
 from fastapi import Response
-from PIL import Image
 import segno
 
 from app.auth.models import Session, CommandsUser, User
