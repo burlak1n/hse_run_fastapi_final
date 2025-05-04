@@ -4,7 +4,7 @@ from sqlalchemy import select, insert, update, delete, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dao.base import BaseDAO
 from app.quest.models import Answer, Block, Question, QuestionInsider, Attempt, AttemptType
-from app.auth.models import User
+from app.auth.models import User, Command
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional, Dict, Any
 from sqlalchemy.future import select
@@ -596,3 +596,178 @@ class AttemptsDAO(BaseDAO):
             logger.error(f"Непредвиденная ошибка при попытке завершить Insider Block {block_id} для команды {command_id}: {e}", exc_info=True)
             await self._session.rollback()
             return False
+
+    async def get_question_solve_stats(self, question_ids: List[int], event_id: int = None) -> Dict[int, float]:
+        """
+        Возвращает статистику решений по каждому вопросу: процент команд, решивших вопрос.
+        Исключает команды с общим количеством баллов <= 2.
+        Возвращает проценты с точностью до одной десятой.
+        
+        Args:
+            question_ids: Список ID вопросов
+            event_id: ID события (опционально, для фильтрации по событию)
+            
+        Returns:
+            Dict[int, float]: Словарь {question_id: процент_решивших}
+        """
+        if not question_ids:
+            return {}
+            
+        try:
+            # Получаем команды с их баллами
+            commands_with_scores_query = (
+                select(
+                    Command.id,
+                    func.sum(AttemptType.score).label("total_score")
+                )
+                .join(Attempt, Attempt.command_id == Command.id)
+                .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+                .where(Attempt.is_true == True)
+                .group_by(Command.id)
+                .having(func.sum(AttemptType.score) > 2)  # Фильтруем команды с баллами <= 2
+            )
+            
+            if event_id:
+                commands_with_scores_query = commands_with_scores_query.where(Command.event_id == event_id)
+                
+            result = await self._session.execute(commands_with_scores_query)
+            valid_command_ids = [row.id for row in result.all()]
+            
+            if not valid_command_ids:
+                logger.warning(f"Нет команд с баллами > 2 для расчёта статистики решений вопросов")
+                return {q_id: 0.0 for q_id in question_ids}
+                
+            total_commands = len(valid_command_ids)
+            logger.info(f"Найдено {total_commands} команд с баллами > 2 для расчёта статистики")
+            
+            # Запрос для подсчёта успешных попыток по каждому вопросу
+            query = (
+                select(
+                    Attempt.question_id,
+                    func.count(func.distinct(Attempt.command_id)).label("solved_count")
+                )
+                .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+                .where(
+                    Attempt.question_id.in_(question_ids),
+                    Attempt.command_id.in_(valid_command_ids),
+                    Attempt.is_true == True,
+                    AttemptType.name.in_(["question", "question_hint"])
+                )
+                .group_by(Attempt.question_id)
+            )
+                
+            result = await self._session.execute(query)
+            
+            # Округляем до 1 десятичного знака
+            stats = {
+                row.question_id: round((row.solved_count / total_commands) * 100, 1) 
+                for row in result.all()
+            }
+            
+            # Заполнить нулями для вопросов, которые не были решены ни одной командой
+            for q_id in question_ids:
+                if q_id not in stats:
+                    stats[q_id] = 0.0
+                    
+            logger.info(f"Получена статистика решений для {len(stats)} вопросов")
+            return stats
+            
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении статистики решений вопросов {question_ids}: {e}", exc_info=True)
+            return {q_id: 0.0 for q_id in question_ids}
+
+    async def get_question_solve_stats_by_language(self, question_ids: List[int], blocks_language_map: Dict[int, int], event_id: int = None) -> Dict[int, float]:
+        """
+        Возвращает статистику решений по каждому вопросу с учетом языка блока: 
+        процент команд с тем же языком, что и блок, решивших вопрос.
+        Исключает команды с общим количеством баллов <= 2.
+        
+        Args:
+            question_ids: Список ID вопросов
+            blocks_language_map: Словарь {question_id: language_id} для определения языка каждого вопроса
+            event_id: ID события (опционально, для фильтрации по событию)
+            
+        Returns:
+            Dict[int, float]: Словарь {question_id: процент_решивших среди команд с тем же языком}
+        """
+        if not question_ids or not blocks_language_map:
+            return {}
+            
+        try:
+            # Получаем команды с их баллами и языками
+            commands_with_scores_query = (
+                select(
+                    Command.id,
+                    Command.language_id,
+                    func.sum(AttemptType.score).label("total_score")
+                )
+                .join(Attempt, Attempt.command_id == Command.id)
+                .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+                .where(Attempt.is_true == True)
+                .group_by(Command.id, Command.language_id)
+                .having(func.sum(AttemptType.score) > 2)  # Фильтруем команды с баллами <= 2
+            )
+            
+            if event_id:
+                commands_with_scores_query = commands_with_scores_query.where(Command.event_id == event_id)
+                
+            result = await self._session.execute(commands_with_scores_query)
+            # Группируем команды по языкам
+            commands_by_language = {}
+            for row in result.all():
+                if row.language_id not in commands_by_language:
+                    commands_by_language[row.language_id] = []
+                commands_by_language[row.language_id].append(row.id)
+            
+            if not commands_by_language:
+                logger.warning(f"Нет команд с баллами > 2 для расчёта статистики решений вопросов по языкам")
+                return {q_id: 0.0 for q_id in question_ids}
+            
+            logger.info(f"Найдены команды по языкам: {', '.join([f'{lang_id}: {len(cmds)}' for lang_id, cmds in commands_by_language.items()])}")
+            
+            # Статистика решений для каждого вопроса
+            stats = {}
+            
+            # Для каждого вопроса получаем его язык и считаем процент решения среди команд этого языка
+            for question_id in question_ids:
+                question_language_id = blocks_language_map.get(question_id)
+                if not question_language_id:
+                    logger.warning(f"Не найден язык для вопроса {question_id}, пропускаем статистику")
+                    stats[question_id] = 0.0
+                    continue
+                
+                # Получаем команды с этим языком
+                commands_with_same_language = commands_by_language.get(question_language_id, [])
+                if not commands_with_same_language:
+                    logger.info(f"Нет активных команд с языком {question_language_id} для вопроса {question_id}")
+                    stats[question_id] = 0.0
+                    continue
+                
+                total_same_language_commands = len(commands_with_same_language)
+                
+                # Запрос для подсчёта успешных попыток для этого вопроса среди команд с тем же языком
+                query = (
+                    select(func.count(func.distinct(Attempt.command_id)).label("solved_count"))
+                    .join(AttemptType, Attempt.attempt_type_id == AttemptType.id)
+                    .where(
+                        Attempt.question_id == question_id,
+                        Attempt.command_id.in_(commands_with_same_language),
+                        Attempt.is_true == True,
+                        AttemptType.name.in_(["question", "question_hint"])
+                    )
+                )
+                
+                result = await self._session.execute(query)
+                solved_count = result.scalar() or 0
+                
+                # Вычисляем процент и округляем до 1 десятичного знака
+                percentage = round((solved_count / total_same_language_commands) * 100, 1) if total_same_language_commands > 0 else 0.0
+                stats[question_id] = percentage
+                logger.debug(f"Вопрос {question_id} (язык {question_language_id}): решен {solved_count}/{total_same_language_commands} команд = {percentage}%")
+            
+            logger.info(f"Получена статистика решений по языкам для {len(stats)} вопросов")
+            return stats
+            
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при получении статистики решений вопросов по языкам {question_ids}: {e}", exc_info=True)
+            return {q_id: 0.0 for q_id in question_ids}

@@ -348,7 +348,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handles all other exceptions, returning a generic unified error response."""
     # Log the full traceback for unexpected errors
-    tb_str = ''.join(traceback.format_exception(etype=type(exc), value=exc, tb=exc.__traceback__))
+    tb_str = ''.join(traceback.format_exception(exc))
     logger.error(f"Unhandled exception for {request.method} {request.url.path}:\n{tb_str}")
 
     error_detail = ErrorDetail(

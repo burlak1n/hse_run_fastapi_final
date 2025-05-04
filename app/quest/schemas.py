@@ -158,6 +158,7 @@ class QuestionStructureInfo(BaseModel):
     hint_path: Optional[str] = None
     text_answered: Optional[str] = None
     image_path_answered: Optional[str] = None
+    solved_percent: float = 0.0
 
 class BlockStructureInfo(BaseModel):
     id: int
@@ -169,3 +170,109 @@ class EventQuestStructureResponse(BaseModel):
     ok: bool = True
     event_name: str
     blocks: List[BlockStructureInfo] = []
+
+# --- Новые схемы для /blocks/simple --- 
+class SimpleQuestionInfo(BaseModel):
+    id: int
+    title: str
+    image_path: Optional[str] = None
+    hint_path: Optional[str] = None # Добавим подсказку для справки
+
+class SimpleBlockInfo(BaseModel):
+    id: int
+    title: str
+    language_id: int
+    questions: List[SimpleQuestionInfo]
+
+class GetAllSimpleBlocksResponse(BaseModel):
+    ok: bool = True
+    blocks: List[SimpleBlockInfo]
+# --- Конец новых схем --- 
+
+class QuestionFilter(BaseModel):
+    block_id: Optional[int] = None
+
+class AnswerFilter(BaseModel):
+    question_id: Optional[int] = None
+
+class FindAnswersForQuestion(AnswerFilter):
+    question_id: int 
+
+class FindQuestionsForBlock(QuestionFilter):
+    block_id: int
+
+class CheckAnswerResponse(BaseModel):
+    isCorrect: bool
+    updatedRiddle: Optional[RiddleResponseData] = None # Исправлено: RiddleInfo -> RiddleResponseData
+    team_score: int
+    team_coins: int
+
+class HintResponse(BaseModel):
+    hint: Optional[str]
+    team_score: int
+    team_coins: int
+
+# --- Схемы для инсайдеров --- 
+class QuestionInsiderFilter(BaseModel):
+    question_id: Optional[int] = None
+    user_id: Optional[int] = None
+
+class FindInsidersForQuestion(QuestionInsiderFilter):
+    question_id: int
+
+class MarkInsiderAttendanceRequest(BaseModel):
+    scanned_user_id: int # ID пользователя, чей QR-код сканируют
+    command_id: int      # ID команды этого пользователя
+    question_id: int     # ID вопроса (локации), где происходит сканирование
+
+class MarkAttendanceResponse(BaseModel):
+    pass # Просто OK или ошибка
+
+class InsiderTaskStatus(BaseModel):
+    id: int # question_id
+    title: str
+    is_attendance_marked: bool
+    can_mark_attendance: bool
+
+class GetInsiderTasksResponse(BaseModel):
+    tasks: List[InsiderTaskStatus]
+
+# --- Схемы для статистики команд (организатор) ---
+class ParticipantInfo(BaseModel):
+    id: int
+    name: str
+    role: str
+
+class CommandStats(BaseModel):
+    id: int
+    name: str
+    language: str
+    score: int
+    coins: int
+    solved_riddles_count: int
+    participants_count: int
+    participants: List[ParticipantInfo]
+
+class GetCommandsStatsResponse(BaseModel):
+    stats: List[CommandStats]
+
+# --- Схемы для структуры квеста (организатор) ---
+class QuestionStructureInfo(BaseModel):
+    id: int
+    title: str
+    image_path: Optional[str]
+    hint_path: Optional[str]
+    longread: Optional[str]
+    image_path_answered: Optional[str] # Картинка после решения (если есть)
+    solved_percent: float = 0.0
+
+class BlockStructureInfo(BaseModel):
+    id: int
+    title: str
+    image_path: Optional[str]
+    language_id: int
+    questions: List[QuestionStructureInfo]
+
+class EventQuestStructureResponse(BaseModel):
+    event_name: str
+    blocks: List[BlockStructureInfo]

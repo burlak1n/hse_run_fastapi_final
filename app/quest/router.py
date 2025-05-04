@@ -530,13 +530,11 @@ async def mark_insider_attendance(
 async def get_event_quest_structure(
     event_name: str,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(require_role(["organizer"])) 
 ):
     """
     Возвращает полную структуру блоков и загадок для указанного события.
     Доступно только организаторам.
     """
-    logger.info(f"Организатор {user.id} запрашивает структуру квеста для события '{event_name}'")
     try:
         events_dao = EventsDAO(session)
         # Сначала получаем ID события по имени
@@ -577,8 +575,23 @@ async def get_event_quest_structure(
 
         logger.info(f"Найдено {len(blocks)} блоков для языков события '{event_name}'")
 
-        # Sort blocks by order in Python - УДАЛЕНО, т.к. нет поля order
-        # blocks.sort(key=lambda b: b.order)
+        # Собираем все ID вопросов из блоков
+        all_question_ids = []
+        # --- НОВОЕ: Создаём словарь для маппинга вопросов на языки блоков ---
+        question_to_language_map = {}
+        for block in blocks:
+            for question in block.questions:
+                all_question_ids.append(question.id)
+                question_to_language_map[question.id] = block.language_id
+            
+        # --- ИЗМЕНЕНО: Получаем статистику решений с учетом языка команд ---
+        attempts_dao = AttemptsDAO(session)
+        solve_stats = await attempts_dao.get_question_solve_stats_by_language(
+            all_question_ids, 
+            question_to_language_map, 
+            event_id
+        )
+        logger.info(f"Получена статистика решений для {len(solve_stats)} вопросов с учетом языка команд")
 
         response_blocks = []
         for block in blocks:
@@ -589,8 +602,9 @@ async def get_event_quest_structure(
                     title=q.title,
                     image_path=q.image_path,
                     hint_path=q.hint_path,
-                    text_answered=q.text_answered,
-                    image_path_answered=q.image_path_answered
+                    longread=q.longread,
+                    image_path_answered=q.image_path_answered,
+                    solved_percent=solve_stats.get(q.id, 0.0)
                 )
                 for q in sorted(block.questions, key=lambda x: x.id) # Sort questions for consistency
             ]
@@ -599,6 +613,7 @@ async def get_event_quest_structure(
                 BlockStructureInfo(
                     id=block.id,
                     title=block.title,
+                    image_path=block.image_path,
                     language_id=block.language_id,
                     questions=response_questions,
                 )
@@ -612,6 +627,6 @@ async def get_event_quest_structure(
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
-        logger.error(f"Ошибка при получении структуры квеста для события '{event_name}': {str(e)}", exc_info=True)
+        logger.exception(f"Ошибка при получении структуры квеста для события '{event_name}'")
         raise InternalServerErrorException
 

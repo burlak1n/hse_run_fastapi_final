@@ -89,9 +89,23 @@ class CommandAdmin(ModelView, model=Command):
         return super().sort_query(stmt, request)
 
 class BlockAdmin(ModelView, model=Block):
-    column_list = [Block.id, Block.title, Block.language]
-    form_columns = [Block.title, Block.language]
+    column_list = [Block.id, Block.title, Block.language, Block.image_path]
+    form_columns = [Block.title, Block.language, Block.image_path]
     column_searchable_list = ["title"]
+    form_overrides = {
+        'image_path': FileField,
+    }
+    def format_image_url(model, attribute) -> Markup:
+        image_path = getattr(model, attribute)
+        if image_path:
+            return Markup(f'<img src="/static/img/{image_path}" style="max-width: 200px; max-height: 200px;" />')
+        return Markup('')
+    column_formatters = {
+        "image_path": format_image_url,
+    }
+    column_formatters_detail = {
+        "image_path": format_image_url,
+    }
     column_sortable_list = [Block.id, Block.title]
     
     def sort_query(self, stmt: Select, request: Request) -> Select:
@@ -103,7 +117,126 @@ class BlockAdmin(ModelView, model=Block):
             else:
                 stmt = stmt.join(Language).order_by(Language.name.asc())
         return super().sort_query(stmt, request)
-    
+    @staticmethod
+    def generate_unique_filename(original_filename: str) -> str:
+        """Генерирует уникальное имя файла"""
+        ext = original_filename.split('.')[-1]  # Получаем расширение файла
+        unique_id = uuid.uuid4().hex  # Генерируем уникальный идентификатор
+        return f"{unique_id}.{ext}"
+
+    async def on_model_change(self, data: dict, model: Any, is_created: bool, request: Request) -> None:
+        if 'image_path' in data:
+            file = data['image_path']
+            if hasattr(file, 'filename') and hasattr(file, 'read') and file.filename:
+                # Убедимся, что директория существует
+                img_dir = Path("app/static/img")
+                img_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Удаляем старый файл, если он существует
+                if model.image_path:
+                    old_file_path = img_dir / model.image_path
+                    if old_file_path.exists():
+                        os.remove(old_file_path)
+                
+                # Генерируем уникальное имя файла
+                unique_filename = self.generate_unique_filename(file.filename)
+                
+                file_content = await file.read()
+                file_path = img_dir / unique_filename
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                # Сохраняем только имя файла в базу данных
+                data['image_path'] = unique_filename
+            else:
+                # Если файл не загружен, устанавливаем None вместо объекта UploadFile
+                if not is_created and model.image_path:  # Для редактирования - сохраняем текущее значение
+                    data['image_path'] = model.image_path
+                else:
+                    data['image_path'] = None  # Для создания - устанавливаем None
+
+        if 'image_path_answered' in data:
+            file = data['image_path_answered']
+            if hasattr(file, 'filename') and hasattr(file, 'read') and file.filename:
+                # Убедимся, что директория существует
+                img_dir = Path("app/static/img")
+                img_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Удаляем старый файл, если он существует
+                if model.image_path_answered:
+                    old_file_path = img_dir / model.image_path_answered
+                    if old_file_path.exists():
+                        os.remove(old_file_path)
+                
+                # Генерируем уникальное имя файла
+                unique_filename = self.generate_unique_filename(file.filename)
+                
+                file_content = await file.read()
+                file_path = img_dir / unique_filename
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                # Сохраняем только имя файла в базу данных
+                data['image_path_answered'] = unique_filename
+            else:
+                # Если файл не загружен, устанавливаем None вместо объекта UploadFile
+                if not is_created and model.image_path_answered:  # Для редактирования - сохраняем текущее значение
+                    data['image_path_answered'] = model.image_path_answered
+                else:
+                    data['image_path_answered'] = None  # Для создания - устанавливаем None
+
+        if 'hint_path' in data:
+            file = data['hint_path']
+            if hasattr(file, 'filename') and hasattr(file, 'read') and file.filename:
+                # Убедимся, что директория существует
+                img_dir = Path("app/static/img")
+                img_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Удаляем старый файл, если он существует
+                if model.hint_path:
+                    old_file_path = img_dir / model.hint_path
+                    if old_file_path.exists():
+                        os.remove(old_file_path)
+                
+                # Генерируем уникальное имя файла
+                unique_filename = self.generate_unique_filename(file.filename)
+                
+                file_content = await file.read()
+                file_path = img_dir / unique_filename
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                # Сохраняем только имя файла в базу данных
+                data['hint_path'] = unique_filename
+            else:
+                # Если файл не загружен, устанавливаем None вместо объекта UploadFile
+                if not is_created and model.hint_path:  # Для редактирования - сохраняем текущее значение
+                    data['hint_path'] = model.hint_path
+                else:
+                    data['hint_path'] = None  # Для создания - устанавливаем None
+
+        return await super().on_model_change(data, model, is_created, request)
+
+
+    async def on_model_delete(self, model: Any, request: Request) -> None:
+        # Удаляем файл image_path, если он существует
+        if model.image_path:
+            file_path = Path("app/static/img") / model.image_path
+            if file_path.exists():
+                os.remove(file_path)
+
+        # Удаляем файл image_path_answered, если он существует
+        if model.image_path_answered:
+            file_path = Path("app/static/img") / model.image_path_answered
+            if file_path.exists():
+                os.remove(file_path)
+
+        # Удаляем файл hint_path, если он существует
+        if model.hint_path:
+            file_path = Path("app/static/img") / model.hint_path
+            if file_path.exists():
+                os.remove(file_path)
+
+        return await super().on_model_delete(model, request)
+
+
 class LanguageAdmin(ModelView, model=Language):
     column_list = [
         Language.id,
@@ -143,7 +276,8 @@ class QuestionAdmin(ModelView, model=Question):
         Question.geo_answered,
         Question.text_answered,
         Question.image_path_answered,
-        Question.hint_path
+        Question.hint_path,
+        Question.longread
     ]
 
     form_overrides = {

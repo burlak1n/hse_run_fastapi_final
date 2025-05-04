@@ -11,6 +11,8 @@ class Block(Base):
     language_id: Mapped[int] = mapped_column(ForeignKey('languages.id'), nullable=False, default=1)
     language: Mapped["Language"] = relationship("Language", back_populates="blocks", lazy="joined")  # Используем строку для указания модели
 
+    image_path: Mapped[Optional[str]] = mapped_column(nullable=True)
+    
     # Связь с вопросами
     questions: Mapped[list["Question"]] = relationship("Question", back_populates="block")
 
@@ -27,6 +29,8 @@ class Question(Base):
     text_answered: Mapped[str]
     image_path_answered: Mapped[Optional[str]] = mapped_column(nullable=True)
     hint_path: Mapped[Optional[str]] = mapped_column(nullable=True)  # Путь к подсказке
+
+    longread: Mapped[Optional[str]] = mapped_column(nullable=True)  # Лонгрид
 
     # Связь с блоком
     block: Mapped["Block"] = relationship("Block", back_populates="questions")
