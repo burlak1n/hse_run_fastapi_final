@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-# from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_fastapi_instrumentator import Instrumentator
 from typing import AsyncGenerator, List
 from fastapi import FastAPI, APIRouter, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -416,3 +416,4 @@ def register_routers(app: FastAPI) -> None:
 
 # Создание экземпляра приложения
 app = create_app()
+Instrumentator().instrument(app).expose(app)

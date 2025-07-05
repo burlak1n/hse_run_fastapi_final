@@ -1,0 +1,49 @@
+# config file for prometheus
+
+# global config
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+# alerting config
+alerting:
+  alertmanagers:
+  - follow_redirects: true
+    scheme: http
+    timeout: 10s
+    api_version: v2
+    static_configs:
+    - targets: []
+
+# scrape configs
+scrape_configs:
+  # prometheus self-monitoring
+  - job_name: 'prometheus'
+    honor_timestamps: true
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    scheme: http
+    follow_redirects: true
+    static_configs:
+    - targets:
+      - localhost:9090
+      labels:
+        environment: 'local'
+        service: 'prometheus'
+
+  # fastapi application monitoring
+  - job_name: 'fastapi-app'
+    scrape_interval: 5s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    follow_redirects: true
+    static_configs:
+    - targets: 
+      - localhost:8000
+      labels:
+        environment: 'local'
+        service: 'hse-run-fastapi'
+        application: 'fastapi'

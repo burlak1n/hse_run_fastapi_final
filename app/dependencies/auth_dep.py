@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from fastapi import Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
@@ -7,9 +6,7 @@ from app.auth.dao import UsersDAO
 from app.auth.models import User
 from app.config import settings
 from app.dependencies.dao_dep import get_session_without_commit
-from app.exceptions import (
-    TokenNoFound, NoJwtException, TokenExpiredException, NoUserIdException, ForbiddenException, UserNotFoundException
-)
+from app.exceptions import ForbiddenException
 from app.auth.dao import SessionDAO
 from app.logger import logger
 
@@ -34,39 +31,6 @@ def get_access_token(request: Request) -> Optional[str]:
     
     logger.info("Токен сессии успешно извлечен")
     return token
-
-
-# def get_refresh_token(request: Request) -> str:
-#     """Извлекаем refresh_token из кук."""
-#     token = request.cookies.get('user_refresh_token')
-#     if not token:
-#         raise TokenNoFound
-#     return token
-
-
-# async def check_refresh_token(
-#         token: str = Depends(get_refresh_token),
-#         session: AsyncSession = Depends(get_session_without_commit)
-# ) -> User:
-#     """ Проверяем refresh_token и возвращаем пользователя."""
-#     try:
-#         payload = jwt.decode(
-#             token,
-#             settings.SECRET_KEY,
-#             algorithms=[settings.ALGORITHM]
-#         )
-#         user_id = payload.get("sub")
-#         if not user_id:
-#             raise NoJwtException
-
-#         user = await UsersDAO(session).find_one_or_none_by_id(data_id=int(user_id))
-#         if not user:
-#             raise NoJwtException
-
-#         return user
-#     except JWTError:
-#         raise NoJwtException
-
 
 async def get_current_user(
         session_token: Optional[str] = Depends(get_access_token),

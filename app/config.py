@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     BASE_URL: str = "https://hserun.ru"
     SESSION_EXPIRE_SECONDS: int = 60*60*24*7 # 1 неделя
     DEBUG: bool = False
-    SECRET_KEY: str = "your_secret_key_here"
 
 class EventConfig:
     address = "Хитровский перeулок, 2/8, стр.5"
@@ -30,7 +29,6 @@ event_config = EventConfig()
 settings = Settings()
 database_url = settings.DB_URL
 BASE_URL = settings.BASE_URL
-SESSION_EXPIRE_SECONDS = timedelta(days=7).total_seconds()
 
 CURRENT_EVENT_NAME = "HSERUN29"
 CAPTAIN_ROLE_NAME = "captain"
