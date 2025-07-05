@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import uuid
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.dao.database import Base, str_uniq, int_uniq, BaseNoID
@@ -41,11 +42,27 @@ class User(Base):
     # Вопросы, закрепленные за инсайдером
     insider_questions: Mapped[list["QuestionInsider"]] = relationship("QuestionInsider", back_populates="user")
     
+    # Профиль пользователя с дополнительной информацией
+    profile: Mapped["UserProfile"] = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    
     # Информация об инсайдере
     insider_info: Mapped["InsiderInfo"] = relationship("InsiderInfo", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"{self.full_name}"
+
+class UserProfile(Base):
+    """Модель для хранения дополнительной информации о пользователе"""
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), unique=True)
+    email: Mapped[str] = mapped_column(nullable=True)
+    # student_organization: Mapped[str] = mapped_column(nullable=True)
+    # geo_link: Mapped[str] = mapped_column(nullable=True)
+    
+    # Обратная связь с пользователем
+    user: Mapped["User"] = relationship("User", back_populates="profile")
+
+    def __repr__(self):
+        return f"{self.email or 'No email'}"
 
 class InsiderInfo(Base):
     """Модель для хранения дополнительной информации об инсайдерах"""
@@ -75,6 +92,9 @@ class Command(Base):
 
     # Связь с попытками
     attempts: Mapped[list["Attempt"]] = relationship("Attempt", back_populates="command", cascade="all, delete-orphan")
+    
+    # Связь с приглашениями
+    invite: Mapped["CommandInvite"] = relationship("CommandInvite", back_populates="command", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
         return self.name
@@ -89,6 +109,18 @@ class Command(Base):
         return f"Команда: {self.name} | {len(self.users)}/6\n{participants_str}"
     def __repr__(self):
         return f"{self.name}"
+
+class CommandInvite(Base):
+    """Модель для хранения UUID приглашений команд"""
+    command_id: Mapped[int] = mapped_column(ForeignKey('commands.id', ondelete='CASCADE'), unique=True)
+    invite_uuid: Mapped[str] = mapped_column(unique=True, default=lambda: str(uuid.uuid4()))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    
+    # Обратная связь с командой
+    command: Mapped["Command"] = relationship("Command", back_populates="invite")
+    
+    def __repr__(self):
+        return f"Invite for {self.command.name if self.command else 'Unknown'}"
     # __table_args__ = (
     #     CheckConstraint('count_users >= 1 AND count_users <= 100', name='check_count_users_range'),
     # )

@@ -12,7 +12,7 @@
     {% include "admin/components/logo.html" %}
 
     <div class="container">
-        {% if request.path != '/admin' %}
+        {% if request.path != '/admin' and request.path != '/admin/' %}
             <a href="/admin" class="back-link">← Назад</a>
         {% else %}
             <a href="/" class="back-link">← На главную</a>

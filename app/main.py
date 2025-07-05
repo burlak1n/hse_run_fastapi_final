@@ -35,6 +35,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from redis import asyncio as aioredis
+from app.auth.redis_session import init_redis_session_service
 
 # Настройки безопасности
 # Получаем домен из BASE_URL для добавления в разрешенные хосты и источники
@@ -163,7 +164,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Content-Security-Policy для защиты от XSS
         # Включаем возможность подключения к домену из BASE_URL
         base_domain_csp = f"{base_scheme}://{base_domain}"
-        if not request.url.path.startswith("/admin"):  # Не добавляем для админки
+        if not request.url.path.startswith("/cms"):  # Не добавляем для админки
             response.headers["Content-Security-Policy"] = (
                 f"default-src 'self' {base_domain_csp}; "
                 f"script-src 'self' 'unsafe-inline' {base_domain_csp}; "
@@ -175,63 +176,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
         
         return response
-
-class SQLInjectionProtectionMiddleware(BaseHTTPMiddleware):
-    """Middleware для защиты от SQL-инъекций."""
-    
-    def __init__(self, app):
-        super().__init__(app)
-        # Паттерны для обнаружения возможных SQL-инъекций
-        self.sql_patterns = [
-            r"(\b(select|insert|update|delete|drop|alter|exec|union|where)\b)",
-            r"(;|\/\*|\*\/|@@|char\s+|nchar\s+|varchar\s+|nvarchar\s+|cursor\s+|declare\s+)",
-            r"(\bfrom\b.*\bwhere\b|\bunion\b.*\bselect\b)",
-            r"(xp_cmdshell|xp_reg|sp_configure|sp_executesql)"
-        ]
-    
-    async def dispatch(self, request: Request, call_next):
-        # Проверяем только запросы с телом
-        if request.method in ["POST", "PUT", "PATCH"]:
-            try:
-                # Получаем тело запроса
-                body = await request.json()
-                
-                # Пропускаем запросы на верификацию QR кодов
-                if request.url.path == "/api/auth/qr/verify" and isinstance(body, dict) and "token" in body:
-                    return await call_next(request)
-                
-                # Проверяем на наличие паттернов SQL-инъекций
-                if self._check_sql_injection(body):
-                    logger.warning(f"Обнаружена попытка SQL-инъекции: {body}")
-                    return JSONResponse(
-                        status_code=400,
-                        content={"detail": "Недопустимые данные запроса"}
-                    )
-            except Exception:
-                # Если не удалось прочитать JSON, продолжаем обработку
-                pass
-        
-        # Продолжаем обработку запроса
-        response = await call_next(request)
-        return response
-    
-    def _check_sql_injection(self, data):
-        """Проверяет данные на наличие паттернов SQL-инъекций"""
-        import re
-        
-        # Рекурсивно проверяем все строковые значения
-        if isinstance(data, dict):
-            return any(self._check_sql_injection(v) for v in data.values())
-        elif isinstance(data, list):
-            return any(self._check_sql_injection(item) for item in data)
-        elif isinstance(data, str):
-            # Проверяем каждый паттерн
-            data_lower = data.lower()
-            for pattern in self.sql_patterns:
-                if re.search(pattern, data_lower):
-                    return True
-        
-        return False
 
 # Настройка Middleware (CORS, TrustedHost, Security, Rate Limiting)
 def setup_middleware(app: FastAPI):
@@ -251,11 +195,14 @@ def setup_middleware(app: FastAPI):
     # Проверка хостов
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
     
-    # Middleware безопасности (заголовки)
-    app.add_middleware(SecurityHeadersMiddleware)
-    
-    # Ограничение размера тела запроса
+    # Добавляем middleware для проверки размера тела запроса
     app.add_middleware(MaxBodySizeMiddleware)
+    
+    # Отключено, так как может вызывать проблемы с legitimate запросами
+    # app.add_middleware(SQLInjectionProtectionMiddleware)
+    
+    # Добавляем middleware для заголовков безопасности
+    app.add_middleware(SecurityHeadersMiddleware)
     
     # Ограничение частоты запросов (только в production)
     if not DEBUG:
@@ -266,18 +213,22 @@ def setup_middleware(app: FastAPI):
 async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
     """Управление жизненным циклом приложения."""
     logger.info("Инициализация приложения...")
-    redis_cache = None
     if settings.USE_REDIS:
         logger.info("Redis is ENABLED. Initializing Redis features...")
-        # Initialize Redis for cache
         try:
-            redis_cache = aioredis.from_url(settings.REDIS_URL, encoding="utf8", decode_responses=True)
+            # Start FastStream broker first
+            await cleanup_broker.start()
+            logger.info("FastStream broker started.")
+            
+            # Create Redis client directly for FastAPI Cache
+            redis_cache = aioredis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
             FastAPICache.init(RedisBackend(redis_cache), prefix="fastapi-cache")
             logger.info(f"FastAPI Cache initialized with Redis backend at {settings.REDIS_URL}")
             
-            # Start FastStream broker
-            await cleanup_broker.start()
-            logger.info("FastStream broker started.")
+            # Initialize Redis session service using FastStream broker
+            await init_redis_session_service(cleanup_broker)
+            logger.info("Redis session service initialized.")
+            
         except Exception as e:
              logger.exception("Failed to initialize Redis features. Check Redis connection and settings.")
              # Decide if startup should fail. For now, continue without Redis.
@@ -293,8 +244,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
     yield # Application runs here
     
     logger.info("Завершение работы приложения...")
-    if settings.USE_REDIS and cleanup_broker.is_started:
-        # Stop FastStream broker only if it was started
+    if settings.USE_REDIS:
+        # Stop FastStream broker if it was used
         try:
              await cleanup_broker.close()
              logger.info("FastStream broker stopped.")
@@ -302,13 +253,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
              logger.exception("Error stopping FastStream broker.")
             
     # Close cache connection if Redis was used and initialized
-    if settings.USE_REDIS and redis_cache:
+    if settings.USE_REDIS:
         try:
             await FastAPICache.clear() # Clear cache keys if needed
-            await redis_cache.close()
-            logger.info("Redis cache connection closed.")
+            logger.info("Redis cache cleared.")
         except Exception as e:
-             logger.exception("Error closing Redis cache connection.")
+             logger.exception("Error clearing Redis cache.")
     else:
          # Clear in-memory cache if needed (optional)
          await FastAPICache.clear()

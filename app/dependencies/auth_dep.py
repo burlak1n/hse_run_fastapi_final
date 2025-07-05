@@ -85,8 +85,13 @@ async def get_current_user(
     try:
         # Получаем сессию по токену
         user_session = await session_dao.get_session(session_token)
-        if not user_session or not user_session.is_valid():
+        if not user_session:
             logger.warning(f"Недействительная или не найденная сессия для токена: {session_token}")
+            return None
+        
+        # Проверяем валидность сессии (работает для обоих типов)
+        if not user_session.is_valid():
+            logger.warning(f"Недействительная сессия для токена: {session_token}")
             return None
         
         logger.info(f"Найдена сессия для пользователя с ID: {user_session.user_id}")

@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     BASE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     DB_URL: str = f"sqlite+aiosqlite:///{BASE_DIR}/data/db.sqlite3"
     REDIS_URL: str = "redis://localhost:6379/0" # Default Redis URL
-    USE_REDIS: bool = False # Master switch for Redis features
+    USE_REDIS: bool = True # Master switch for Redis features (enabled by default for sessions)
 
     model_config = SettingsConfigDict(env_file=f"{BASE_DIR}/.env")
     BASE_URL: str = "https://hserun.ru"

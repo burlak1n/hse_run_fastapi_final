@@ -4,9 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.auth.schemas import SessionCreate, SessionFindUpdate, SessionGet, SessionMakeUpdate
 from app.auth.utils import create_session
-from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME
+from app.config import CAPTAIN_ROLE_NAME, CURRENT_EVENT_NAME, settings
 from app.dao.base import BaseDAO
-from app.auth.models import Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command, InsiderInfo, Program
+from app.auth.models import CommandInvite, Event, Language, Role, RoleUserCommand, Session, User, CommandsUser, Command, InsiderInfo, Program, UserProfile
+from app.auth.redis_session import get_redis_session_service
 from app.logger import logger
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -586,6 +587,83 @@ class CommandsDAO(BaseDAO):
             logger.error(f"Ошибка при обновлении языка команды: {e}")
             raise
 
+class CommandInviteDAO(BaseDAO):
+    model = CommandInvite
+    
+    async def create_invite(self, command_id: int, auto_commit: bool = False) -> str:
+        """Создает приглашение для команды и возвращает UUID"""
+        import uuid
+        logger.info(f"Создание приглашения для команды {command_id}")
+        try:
+            # Проверяем, не существует ли уже приглашение для этой команды
+            existing_uuid = await self.get_uuid_by_command_id(command_id)
+            if existing_uuid:
+                logger.info(f"Приглашение уже существует для команды {command_id}: {existing_uuid}")
+                return existing_uuid
+            
+            invite_uuid = str(uuid.uuid4())
+            invite = CommandInvite(
+                command_id=command_id,
+                invite_uuid=invite_uuid
+            )
+            self._session.add(invite)
+            
+            if auto_commit:
+                await self._session.commit()
+                logger.info(f"Создано приглашение {invite_uuid} для команды {command_id} с автокоммитом")
+            else:
+                # Используем flush чтобы получить ID, но не коммитим транзакцию
+                await self._session.flush()
+                logger.info(f"Создано приглашение {invite_uuid} для команды {command_id}")
+            
+            return invite_uuid
+        except Exception as e:
+            if auto_commit:
+                await self._session.rollback()
+            logger.error(f"Ошибка при создании приглашения для команды {command_id}: {e}")
+            raise
+    
+    async def find_command_by_uuid(self, invite_uuid: str) -> Optional[Command]:
+        """Находит команду по UUID приглашения"""
+        logger.info(f"Поиск команды по UUID приглашения: {invite_uuid}")
+        try:
+            # Используем JOIN вместо selectinload для избежания проблем с greenlet
+            query = (
+                select(Command)
+                .join(CommandInvite, Command.id == CommandInvite.command_id)
+                .filter(CommandInvite.invite_uuid == invite_uuid)
+            )
+            result = await self._session.execute(query)
+            command = result.scalar_one_or_none()
+            
+            if command:
+                logger.info(f"Найдена команда {command.name} по UUID {invite_uuid}")
+                return command
+            else:
+                logger.warning(f"Команда не найдена по UUID {invite_uuid}")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка при поиске команды по UUID {invite_uuid}: {e}")
+            raise
+    
+    async def get_uuid_by_command_id(self, command_id: int) -> Optional[str]:
+        """Получает UUID приглашения по ID команды"""
+        logger.info(f"Получение UUID приглашения для команды {command_id}")
+        try:
+            query = select(CommandInvite.invite_uuid).filter(CommandInvite.command_id == command_id)
+            result = await self._session.execute(query)
+            invite_uuid = result.scalar_one_or_none()
+            
+            if invite_uuid:
+                logger.info(f"Найден UUID {invite_uuid} для команды {command_id}")
+            else:
+                logger.warning(f"UUID не найден для команды {command_id}")
+                
+            return invite_uuid
+        except Exception as e:
+            logger.error(f"Ошибка при получении UUID для команды {command_id}: {e}")
+            raise
+
 class RolesDAO(BaseDAO):
     model = Role
 
@@ -671,75 +749,124 @@ class SessionDAO(BaseDAO):
         Если у пользователя уже есть активная сессия, она будет деактивирована.
         Возвращает токен созданной сессии.
         """
-        logger.info(f"Создание новой сессии для пользователя {user_id}")
-        try:
-            # Деактивируем все активные сессии пользователя
-            await self.deactivate_all_sessions(user_id)
-            
-            # Создаем новую сессию
-            session = await create_session(user_id)
-    
-            session_data = SessionCreate(
-                user_id=user_id,
-                token=session.token,
-                expires_at=session.expires_at,
-                is_active=True
-            )
+        if settings.USE_REDIS:
+            # Используем Redis для сессий
+            redis_session_service = await get_redis_session_service()
+            return await redis_session_service.create_session(user_id)
+        else:
+            # Fallback к базе данных
+            logger.info(f"Создание новой сессии для пользователя {user_id}")
+            try:
+                # Деактивируем все активные сессии пользователя
+                await self.deactivate_all_sessions(user_id)
+                
+                # Создаем новую сессию
+                session = await create_session(user_id)
+        
+                session_data = SessionCreate(
+                    user_id=user_id,
+                    token=session.token,
+                    expires_at=session.expires_at,
+                    is_active=True
+                )
 
-            await self.add(values=session_data)
+                await self.add(values=session_data)
 
-            logger.info(f"Новая сессия успешно создана для пользователя {user_id}")
-            return session.token
+                logger.info(f"Новая сессия успешно создана для пользователя {user_id}")
+                return session.token
 
-        except Exception as e:
-            logger.error(f"Ошибка при создании сессии: {e}")
-            raise
+            except Exception as e:
+                logger.error(f"Ошибка при создании сессии: {e}")
+                raise
 
     async def deactivate_all_sessions(self, user_id: int):
         """
         Деактивирует все активные сессии пользователя.
         """
-        logger.info(f"Деактивация всех сессий пользователя {user_id}")
-        try:
-            await self.update(
-                filters=SessionFindUpdate(user_id=user_id, is_active=True),
-                values=SessionMakeUpdate(is_active=False, expires_at=datetime.now(timezone.utc))
-            )
-            logger.info(f"Все сессии пользователя {user_id} успешно деактивированы")
-        except Exception as e:
-            logger.error(f"Ошибка при деактивации сессий: {e}")
-            raise
+        if settings.USE_REDIS:
+            # Используем Redis для сессий
+            redis_session_service = await get_redis_session_service()
+            await redis_session_service.deactivate_all_sessions(user_id)
+        else:
+            # Fallback к базе данных
+            logger.info(f"Деактивация всех сессий пользователя {user_id}")
+            try:
+                await self.update(
+                    filters=SessionFindUpdate(user_id=user_id, is_active=True),
+                    values=SessionMakeUpdate(is_active=False, expires_at=datetime.now(timezone.utc))
+                )
+                logger.info(f"Все сессии пользователя {user_id} успешно деактивированы")
+            except Exception as e:
+                logger.error(f"Ошибка при деактивации сессий: {e}")
+                raise
 
     async def deactivate_session(self, session_token: str):
         """
         Деактивирует сессию по её токену.
         """
-        logger.info(f"Деактивация сессии с токеном {session_token}")
-        try:
-            await self.update(
-                filters={"token": session_token},
-                values={"is_active": False, "expires_at": datetime.now(timezone.utc)}
-            )
-            logger.info(f"Сессия с токеном {session_token} успешно деактивирована")
-        except Exception as e:
-            logger.error(f"Ошибка при деактивации сессии: {e}")
-            raise
+        if settings.USE_REDIS:
+            # Используем Redis для сессий
+            redis_session_service = await get_redis_session_service()
+            await redis_session_service.deactivate_session(session_token)
+        else:
+            # Fallback к базе данных
+            logger.info(f"Деактивация сессии с токеном {session_token}")
+            try:
+                await self.update(
+                    filters={"token": session_token},
+                    values={"is_active": False, "expires_at": datetime.now(timezone.utc)}
+                )
+                logger.info(f"Сессия с токеном {session_token} успешно деактивирована")
+            except Exception as e:
+                logger.error(f"Ошибка при деактивации сессии: {e}")
+                raise
 
     async def get_session(self, session_token: str):
         """
         Получает сессию по токену.
         """
-        logger.info(f"Получение сессии по токену {session_token}")
-        try:
-            session = await self.find_one_or_none(filters=SessionGet(token=session_token))
-            if not session or not session.is_valid():
-                logger.warning(f"Недействительная или истекшая сессия с токеном {session_token}")
+        if settings.USE_REDIS:
+            # Используем Redis для сессий
+            redis_session_service = await get_redis_session_service()
+            return await redis_session_service.get_session(session_token)
+        else:
+            # Fallback к базе данных
+            logger.info(f"Получение сессии по токену {session_token}")
+            try:
+                session = await self.find_one_or_none(filters=SessionGet(token=session_token))
+                if not session or not session.is_valid():
+                    logger.warning(f"Недействительная или истекшая сессия с токеном {session_token}")
+                    return None
+                logger.info(f"Сессия с токеном {session_token} успешно получена")
+                return session
+            except Exception as e:
+                logger.error(f"Ошибка при получении сессии: {e}")
                 return None
-            logger.info(f"Сессия с токеном {session_token} успешно получена")
-            return session
+
+    async def clear_all_sessions(self) -> int:
+        """
+        Удаляет все сессии из базы данных (для тестирования).
+        Возвращает количество удаленных сессий.
+        """
+        logger.info("Удаление всех сессий из базы данных")
+        try:
+            # Получаем количество сессий перед удалением
+            all_sessions = await self.find_all()
+            sessions_count = len(all_sessions)
+            
+            # Удаляем все сессии
+            from sqlalchemy import delete
+            delete_stmt = delete(self.model)
+            result = await self._session.execute(delete_stmt)
+            await self._session.commit()
+            
+            deleted_count = result.rowcount
+            logger.info(f"Удалено {deleted_count} сессий из базы данных")
+            return deleted_count
         except Exception as e:
-            logger.error(f"Ошибка при получении сессии: {e}")
-            return None
+            logger.error(f"Ошибка при удалении всех сессий: {e}")
+            await self._session.rollback()
+            raise
 
 class InsidersInfoDAO(BaseDAO):
     model = InsiderInfo
@@ -871,3 +998,70 @@ class ProgramDAO(BaseDAO):
         except Exception as e:
             logger.error(f"Ошибка при получении истории баллов пользователя {user_id}: {e}")
             return []
+
+class UserProfileDAO(BaseDAO):
+    """DAO для работы с профилями пользователей"""
+    model = UserProfile
+    
+    async def create_or_update(self, user_id: int, email: str = None):
+        """
+        Создает или обновляет профиль пользователя
+        
+        Args:
+            user_id: ID пользователя
+            email: Email пользователя
+            
+        Returns:
+            UserProfile: Созданный или обновленный профиль
+        """
+        logger.info(f"Создание/обновление профиля пользователя {user_id}")
+        try:
+            # Ищем существующий профиль напрямую через SQLAlchemy
+            query = select(self.model).filter_by(user_id=user_id)
+            result = await self._session.execute(query)
+            existing_profile = result.scalar_one_or_none()
+            
+            if existing_profile:
+                # Обновляем существующий профиль
+                if email is not None:
+                    existing_profile.email = email
+                    
+                await self._session.commit()
+                logger.info(f"Профиль пользователя {user_id} обновлен")
+                return existing_profile
+            else:
+                # Создаем новый профиль
+                new_profile = UserProfile(user_id=user_id, email=email)
+                self._session.add(new_profile)
+                await self._session.commit()
+                logger.info(f"Создан новый профиль для пользователя {user_id}")
+                return new_profile
+                
+        except Exception as e:
+            logger.error(f"Ошибка при создании/обновлении профиля пользователя {user_id}: {e}")
+            await self._session.rollback()
+            raise
+    
+    async def get_by_user_id(self, user_id: int):
+        """
+        Получает профиль пользователя по ID пользователя
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            UserProfile или None
+        """
+        logger.info(f"Получение профиля пользователя {user_id}")
+        try:
+            query = select(self.model).filter_by(user_id=user_id)
+            result = await self._session.execute(query)
+            profile = result.scalar_one_or_none()
+            if profile:
+                logger.info(f"Профиль пользователя {user_id} найден")
+            else:
+                logger.info(f"Профиль пользователя {user_id} не найден")
+            return profile
+        except Exception as e:
+            logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}")
+            raise

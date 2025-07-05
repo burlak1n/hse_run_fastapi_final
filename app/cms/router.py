@@ -890,7 +890,7 @@ def init_admin(app: FastAPI, base_url: str = "/admin") -> Admin:
     """Инициализирует админ-панель с проверкой прав доступа."""
     
     # Создаем экземпляр админки
-    admin = Admin(app, engine, base_url=base_url, templates_dir="app/cms/templates")
+    admin = Admin(app, engine, base_url=base_url)
     
     # Обработчики для корневого пути с обоими вариантами (со слешем и без)
     @admin.app.get(f"{base_url}")
