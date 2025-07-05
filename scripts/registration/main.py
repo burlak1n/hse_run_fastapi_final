@@ -82,7 +82,7 @@ def validate_email(email: str) -> bool:
     
     # Проверяем домен
     domain = email.split('@')[1]
-    return domain in ALLOWED_EMAIL_DOMAINS
+    return True
 
 async def is_user_registered(telegram_id: int) -> tuple[bool, Optional[User]]:
     """Проверяет, зарегистрирован ли пользователь полностью"""
@@ -324,7 +324,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 return
             
             await state.set_state(RegistrationStates.waiting_for_name)
-            await message.answer("Привет! Для присоединения к команде сначала нужно зарегистрироваться.\n\nВведи своё ФИО:")
+            await message.answer("Привет! Это регистрация на большой культурно-айтишный квест по Москве от КРОК!\n\nДля начала введи своё ФИО:")
             return
     
     # Проверяем, зарегистрирован ли пользователь
@@ -342,7 +342,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         return
     
     await state.set_state(RegistrationStates.waiting_for_name)
-    await message.answer("Привет! Для регистрации введи своё ФИО")
+    await message.answer("Привет! Это регистрация на большой культурно-айтишный квест по Москве от КРОК!\n\nДля начала введи своё ФИО:")
 
 # Обработчик ввода ФИО
 @dp.message(RegistrationStates.waiting_for_name)
@@ -387,8 +387,8 @@ async def process_email(message: types.Message, state: FSMContext):
         domains_text = ", ".join(ALLOWED_EMAIL_DOMAINS[:8]) + "..." if len(ALLOWED_EMAIL_DOMAINS) > 8 else ", ".join(ALLOWED_EMAIL_DOMAINS)
         await message.answer(
             f"❌ Неверный формат почты!\n\n"
-            f"Разрешенные домены:\n{domains_text}\n\n"
-            f"Попробуй еще раз:"
+            # f"Разрешенные домены:\n{domains_text}\n\n"
+            # f"Попробуй еще раз:"
         )
         return
     
@@ -415,7 +415,7 @@ async def process_email(message: types.Message, state: FSMContext):
     else:
         # Отправляем стандартное подтверждение
         await message.answer(
-            "Поздравляем, ты зарегистрирован! Чтобы принять участие в квесте нужно создать команду или присоединиться к существующей.\n\n"
+            "Поздравляем, ты зарегистрирован! Чтобы принять участие в квесте нужно создать команду или присоединиться к существующей.\n\n Найти своих членов команды ты можешь среди коллег или в чате мероприятия!\n\n"
             "Для создания введи /create, для присоединения получи от капитана ссылку, которая находится в профиле (/profile)"
         )
 

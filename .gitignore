@@ -49,3 +49,6 @@ app/static/img/
 *.sqlite3
 *.db
 data/db.sqlite3
+
+*.env
+*.ttf
