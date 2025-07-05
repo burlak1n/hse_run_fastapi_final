@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-import os
+# from prometheus_fastapi_instrumentator import Instrumentator
 from typing import AsyncGenerator, List
 from fastapi import FastAPI, APIRouter, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
