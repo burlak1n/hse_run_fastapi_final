@@ -128,8 +128,8 @@ def setup_bot_admin_views(admin: Admin):
         ]
         column_searchable_list = [User.full_name, User.telegram_username]
         column_sortable_list = [User.id, User.full_name, User.created_at]
-        column_filters = [User.role, User.is_looking_for_friends]
-        column_details_exclude_list = []
+        # Убираем все фильтры - SQLAdmin не может их корректно обработать
+        column_filters = []
         
         # Поля для создания/редактирования
         form_columns = [
@@ -169,7 +169,8 @@ def setup_bot_admin_views(admin: Admin):
         ]
         column_searchable_list = [Command.name]
         column_sortable_list = [Command.id, Command.name, Command.created_at]
-        column_filters = [Command.event, Command.language]
+        # Убираем проблемные фильтры для relationship полей
+        column_filters = []
         
         form_columns = [Command.name, Command.event, Command.language]
         
@@ -183,7 +184,8 @@ def setup_bot_admin_views(admin: Admin):
     # Участники команд (управление составом)
     class BotCommandsUserAdmin(ModelView, model=CommandsUser):
         column_list = [CommandsUser.command, CommandsUser.user, CommandsUser.role]
-        column_filters = [CommandsUser.role]
+        # Убираем проблемные фильтры для relationship полей
+        column_filters = []
         column_sortable_list = []
         
         form_columns = [CommandsUser.command, CommandsUser.user, CommandsUser.role]
@@ -201,6 +203,8 @@ def setup_bot_admin_views(admin: Admin):
         ]
         column_searchable_list = [CommandInvite.invite_uuid]
         column_sortable_list = [CommandInvite.id, CommandInvite.created_at]
+        # Убираем проблемные фильтры для relationship полей
+        column_filters = []
         
         form_columns = [CommandInvite.command, CommandInvite.invite_uuid]
         
