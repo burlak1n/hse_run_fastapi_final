@@ -1,30 +1,33 @@
 import base64
-from typing import Optional, List, Dict, Any, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy import select, func
-from sqlalchemy.exc import SQLAlchemyError
-
-from app.auth.dao import (
-    UsersDAO, SessionDAO, RolesDAO, InsidersInfoDAO, ProgramDAO, 
-    CommandsDAO, CommandsUsersDAO, RolesUsersCommandDAO, EventsDAO
-)
-from app.auth.models import User, CommandsUser, Command
-from app.auth.schemas import (
-    TelegramAuthData, CompleteRegistrationRequest, SUserAddDB, 
-    UserFindCompleteRegistration, UserMakeCompleteRegistration, RoleFilter,
-    CommandInfo, RoleModel, UpdateProfileRequest, UserTelegramID, CommandEdit, CommandName, CommandBase, CommandsUserBase,
-    ProgramScoreAdd, ProgramScoreInfo, ProgramScoreTotal,
-    CommandLeaderboardData, CommandLeaderboardEntry
-)
-from app.auth.utils import generate_qr_image
-from app.config import settings
-from app.exceptions import NotFoundException, InternalServerErrorException, BadRequestException, ForbiddenException, TokenExpiredException
-from app.logger import logger
-from app.quest.models import Attempt, AttemptType
+from typing import Any, Dict, List, Optional, Tuple
 
 # Cache imports
 from fastapi_cache import FastAPICache
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.auth.dao import (CommandsDAO, CommandsUsersDAO, EventsDAO,
+                          InsidersInfoDAO, ProgramDAO, RolesDAO,
+                          RolesUsersCommandDAO, SessionDAO, UsersDAO)
+from app.auth.models import Command, CommandsUser, User
+from app.auth.schemas import (CommandBase, CommandEdit, CommandInfo,
+                              CommandLeaderboardData, CommandLeaderboardEntry,
+                              CommandName, CommandsUserBase,
+                              CompleteRegistrationRequest, ProgramScoreAdd,
+                              ProgramScoreInfo, ProgramScoreTotal, RoleFilter,
+                              RoleModel, SUserAddDB, TelegramAuthData,
+                              UpdateProfileRequest,
+                              UserFindCompleteRegistration,
+                              UserMakeCompleteRegistration, UserTelegramID)
+from app.auth.utils import generate_qr_image
+from app.config import settings
+from app.exceptions import (BadRequestException, ForbiddenException,
+                            InternalServerErrorException, NotFoundException,
+                            TokenExpiredException)
+from app.logger import logger
+from app.quest.models import Attempt, AttemptType
 
 
 class UserService:
@@ -266,7 +269,8 @@ class QRService:
     async def verify_qr_and_get_info(self, scanner_user: User, qr_token: str) -> Dict[str, Any]:
         """Проверяет QR-код и возвращает информацию в зависимости от роли сканирующего."""
         
-        from .utils import get_user_role_in_command, format_participants # Импорт внутри метода
+        from .utils import format_participants  # Импорт внутри метода
+        from .utils import get_user_role_in_command
         
         try:
             # Используем SessionDAO для валидации токена и получения пользователя
@@ -398,11 +402,11 @@ class CommandService:
             raise NotFoundException("Команда не найдена")
         return command # Возвращаем ORM модель, валидация будет в роутере
 
-    async def create_command(self, user: User, command_data: CommandEdit) -> None:
+    async def create_command(self, user: User, command_data: CommandEdit, event_name: str) -> None:
         """Создает новую команду и назначает пользователя капитаном."""
-        curr_event_id = await self.events_dao.get_event_id_by_name()
+        curr_event_id = await self.events_dao.get_event_id_by_name(event_name)
         if not curr_event_id:
-            logger.error("Не удалось получить ID текущего события при создании команды")
+            logger.error(f"Не удалось получить ID события '{event_name}' при создании команды")
             raise InternalServerErrorException("Не удалось получить информацию о текущем событии.")
 
         existing_command = await self.commands_dao.find_one_or_none(filters=CommandName(name=command_data.name))
@@ -499,7 +503,7 @@ class CommandService:
     async def join_command_via_qr(self, scanner_user: User, qr_token: str) -> None:
         """Обрабатывает присоединение пользователя к команде через QR-токен капитана."""
         from .utils import get_user_role_in_command
-        
+
         # 1. Получаем пользователя по QR токену
         try:
             session_dao = SessionDAO(self.session)
@@ -564,15 +568,15 @@ class EventService:
         self.session = session
         self.events_dao = EventsDAO(session)
 
-    async def check_event_status(self, user: Optional[User]) -> bool:
-        """Проверяет, активно ли текущее событие."""
+    async def check_event_status(self, user: Optional[User], event_name: str) -> bool:
+        """Проверяет, активно ли указанное событие."""
         try:
             # Проверяем, является ли пользователь организатором
             if user and user.role and user.role.name == "organizer":
                 # Организаторы всегда могут входить в квест
                 return True
             
-            event_id = await self.events_dao.get_event_id_by_name()
+            event_id = await self.events_dao.get_event_id_by_name(event_name)
             
             if not event_id:
                 return False
@@ -580,7 +584,7 @@ class EventService:
             is_active = await self.events_dao.is_event_active(event_id)
             return is_active
         except Exception as e:
-            logger.error(f"Ошибка при проверке активности события: {e}", exc_info=True)
+            logger.error(f"Ошибка при проверке активности события '{event_name}': {e}", exc_info=True)
             # В случае ошибки считаем событие неактивным для безопасности
             return False
 
@@ -697,9 +701,9 @@ class StatsService:
         self.commands_dao = CommandsDAO(session)
         self.event_dao = EventsDAO(session)
 
-    async def get_registration_stats(self, current_user: User) -> Dict[str, Any]:
+    async def get_registration_stats(self, current_user: User, event_name: str) -> Dict[str, Any]:
         """Собирает и возвращает статистику по регистрациям."""
-        logger.info(f"Запрос статистики регистраций пользователем {current_user.id}")
+        logger.info(f"Запрос статистики регистраций пользователем {current_user.id} для события '{event_name}'")
 
         # Проверяем роль пользователя
         if not current_user.role or current_user.role.name not in ["organizer", "ctc"]:
@@ -708,10 +712,10 @@ class StatsService:
         
         try:
             # Получаем текущее событие
-            curr_event_id = await self.event_dao.get_event_id_by_name()
+            curr_event_id = await self.event_dao.get_event_id_by_name(event_name)
             if not curr_event_id:
-                logger.error("Не удалось получить информацию о текущем событии для статистики")
-                raise InternalServerErrorException("Не удалось получить информацию о текущем событии")
+                logger.error(f"Не удалось получить информацию о событии '{event_name}' для статистики")
+                raise InternalServerErrorException(f"Не удалось получить информацию о событии '{event_name}'")
             
             # Получаем команды текущего события с загрузкой связанных пользователей
             teams = await self.commands_dao.find_all_by_event(
