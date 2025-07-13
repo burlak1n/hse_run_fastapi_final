@@ -44,7 +44,7 @@ base_domain = parsed_url.netloc
 base_scheme = parsed_url.scheme
 
 # Добавляем gopass.dev и hserun.gopass.dev в разрешенные хосты
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "localhost:8000", base_domain]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "localhost:8000", base_domain, "technoquestcroc.ru"]
 
 ALLOWED_ORIGINS = [
     "http://localhost",
@@ -52,6 +52,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:8000",
     BASE_URL,  # Добавляем полный URL из конфига
     f"{base_scheme}://{base_domain}",  # Добавляем URL с извлеченным доменом
+    "https://technoquestcroc.ru",  # Добавляем домен для KRUN события
 ]
 # Максимальный размер тела запроса (10 МБ)
 MAX_BODY_SIZE = 3 * 1024 * 1024
@@ -198,15 +199,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
 
         # Content-Security-Policy для защиты от XSS
-        # Включаем возможность подключения к домену из BASE_URL
-        base_domain_csp = f"{base_scheme}://{base_domain}"
+        # Используем только текущий домен для CSP
+        current_host = request.headers.get("host", "")
+        if current_host:
+            # Убираем порт если есть
+            current_domain = current_host.split(":")[0]
+            current_domain_csp = f"https://{current_domain}"
+        else:
+            # Fallback на домен из BASE_URL
+            current_domain_csp = f"{base_scheme}://{base_domain}"
+        
         if not request.url.path.startswith("/cms"):  # Не добавляем для админки
             response.headers["Content-Security-Policy"] = (
-                f"default-src 'self' {base_domain_csp}; "
-                f"script-src 'self' 'unsafe-inline' {base_domain_csp}; "
-                f"style-src 'self' 'unsafe-inline' {base_domain_csp}; "
-                f"img-src 'self' data: {base_domain_csp}; "
-                f"connect-src 'self' {base_domain_csp}; "
+                f"default-src 'self' {current_domain_csp}; "
+                f"script-src 'self' 'unsafe-inline' {current_domain_csp}; "
+                f"style-src 'self' 'unsafe-inline' {current_domain_csp}; "
+                f"img-src 'self' data: {current_domain_csp}; "
+                f"connect-src 'self' {current_domain_csp}; "
                 "frame-ancestors 'self'; "
                 "form-action 'self'"
             )
