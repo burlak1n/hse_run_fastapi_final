@@ -23,6 +23,7 @@ class MarkInsiderAttendanceRequest(BaseModel):
 class AnswerRequest(BaseModel):
     """Schema for checking an answer."""
     answer: str = Field(..., description="The user's answer text")
+    additional_field: Optional[str] = Field(None, description="Дополнительное поле для ответа")
 
 # --- Response Schemas ---
 
@@ -83,6 +84,7 @@ class GetBlockResponse(BaseModel):
 class CheckAnswerResponse(BaseModel):
     ok: bool
     isCorrect: bool
+    needsAdditionalInput: bool = False
     # updatedRiddle can be RiddleDetail/RiddleBrief if correct, or null if incorrect
     updatedRiddle: Optional[RiddleResponseData] = None 
     team_score: int
@@ -203,6 +205,7 @@ class FindQuestionsForBlock(QuestionFilter):
 
 class CheckAnswerResponse(BaseModel):
     isCorrect: bool
+    needsAdditionalInput: bool = False
     updatedRiddle: Optional[RiddleResponseData] = None # Исправлено: RiddleInfo -> RiddleResponseData
     team_score: int
     team_coins: int

@@ -49,6 +49,7 @@ class Answer(Base):
     """Модель для ответов на вопросы"""
     question_id: Mapped[int] = mapped_column(ForeignKey('questions.id'), nullable=False)
     answer_text: Mapped[str]
+    additional_field_value: Mapped[Optional[str]] = mapped_column(nullable=True)
 
     # Связь с вопросом
     question: Mapped["Question"] = relationship("Question", back_populates="answers")

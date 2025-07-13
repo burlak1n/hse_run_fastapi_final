@@ -244,7 +244,7 @@ async def check_answer(
     auth_data: Tuple[User, Command] = Depends(get_authenticated_user_and_command)
 ):
     """
-    Проверяет ответ пользователя на загадку
+    Проверяет ответ пользователя на загадку (с поддержкой дополнительного поля)
     """
     user, command = auth_data
     try:
@@ -263,29 +263,94 @@ async def check_answer(
         user_answer = answer_data.answer
         answers_dao = AnswersDAO(session)
         answers = await answers_dao.find_all(filters=FindAnswersForQuestion(question_id=riddle_id))
+        
+        # Проверяем основной ответ
         is_correct = any(compare_strings(user_answer, answer.answer_text) for answer in answers)
+        has_additional = any(answer.additional_field_value for answer in answers)
+        needs_additional_input = False
+        additional_correct = False
         
         has_hint = await attempts_dao.has_successful_attempt_of_type(command.id, question.id, "hint")
         attempt_type_name = "question_hint" if has_hint else "question"
-        
         attempt_type = await attempts_dao.get_attempt_type_by_name(attempt_type_name)
         if not attempt_type:
             logger.error(f"Attempt type '{attempt_type_name}' not found in DB.")
             raise AttemptTypeNotFoundException
 
-        attempt = Attempt(
-            user_id=user.id,
-            command_id=command.id,
-            question_id=question.id,
-            attempt_type_id=attempt_type.id,
-            attempt_text=user_answer,
-            is_true=is_correct
-        )
-        session.add(attempt)
-        await session.commit()
-
+        # Если основной ответ правильный и есть дополнительное поле, но оно не прислано
+        if is_correct and has_additional and not answer_data.additional_field:
+            # Создаем обычную попытку (основной ответ)
+            attempt = Attempt(
+                user_id=user.id,
+                command_id=command.id,
+                question_id=question.id,
+                attempt_type_id=attempt_type.id,
+                attempt_text=user_answer,
+                is_true=True
+            )
+            session.add(attempt)
+            await session.commit()
+            team_stats = await attempts_dao.calculate_team_score_and_coins(command.id)
+            attempt_statuses = await attempts_dao.get_attempts_status_for_block(command.id, [question.id])
+            updated_riddle_data = await get_riddle_data(question, attempt_statuses, session)
+            return CheckAnswerResponse(
+                ok=True,
+                isCorrect=True,
+                needsAdditionalInput=True,
+                updatedRiddle=updated_riddle_data,
+                team_score=team_stats["score"],
+                team_coins=team_stats["coins"]
+            )
+        
+        # Если основной ответ правильный и есть дополнительное поле, и оно прислано
+        if is_correct and has_additional and answer_data.additional_field:
+            # Проверяем дополнительное поле
+            additional_correct = any(
+                compare_strings(answer_data.additional_field, answer.additional_field_value)
+                for answer in answers if answer.additional_field_value
+            )
+            if additional_correct:
+                # Создаем вторую попытку типа insider/insider_hint
+                insider_type_name = "insider_hint" if has_hint else "insider"
+                insider_type = await attempts_dao.get_attempt_type_by_name(insider_type_name)
+                if not insider_type:
+                    logger.error(f"Attempt type '{insider_type_name}' not found in DB.")
+                    raise AttemptTypeNotFoundException
+                insider_attempt = Attempt(
+                    user_id=user.id,
+                    command_id=command.id,
+                    question_id=question.id,
+                    attempt_type_id=insider_type.id,
+                    attempt_text=answer_data.additional_field,
+                    is_true=True
+                )
+                session.add(insider_attempt)
+                await session.commit()
+            team_stats = await attempts_dao.calculate_team_score_and_coins(command.id)
+            attempt_statuses = await attempts_dao.get_attempts_status_for_block(command.id, [question.id])
+            updated_riddle_data = await get_riddle_data(question, attempt_statuses, session)
+            return CheckAnswerResponse(
+                ok=True,
+                isCorrect=additional_correct,
+                needsAdditionalInput=False,
+                updatedRiddle=updated_riddle_data,
+                team_score=team_stats["score"],
+                team_coins=team_stats["coins"]
+            )
+        
+        # Обычная логика (нет дополнительного поля)
+        if is_correct:
+            attempt = Attempt(
+                user_id=user.id,
+                command_id=command.id,
+                question_id=question.id,
+                attempt_type_id=attempt_type.id,
+                attempt_text=user_answer,
+                is_true=True
+            )
+            session.add(attempt)
+            await session.commit()
         team_stats = await attempts_dao.calculate_team_score_and_coins(command.id)
-
         updated_riddle_data = None
         if is_correct:
             question = await questions_dao.find_one_or_none_by_id(riddle_id)
@@ -294,15 +359,14 @@ async def check_answer(
             else: 
                 attempt_statuses = await attempts_dao.get_attempts_status_for_block(command.id, [question.id])
                 updated_riddle_data = await get_riddle_data(question, attempt_statuses, session)
-
         return CheckAnswerResponse(
             ok=True,
             isCorrect=is_correct,
+            needsAdditionalInput=False,
             updatedRiddle=updated_riddle_data, 
             team_score=team_stats["score"],
             team_coins=team_stats["coins"]
         )
-        
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
