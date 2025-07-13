@@ -1,41 +1,42 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.auth.dao import CommandsDAO, UsersDAO, EventsDAO
-from app.auth.models import User, CommandsUser, Command, Language
-from app.dependencies.dao_dep import get_session_with_commit
-from app.dependencies.quest_dep import get_authenticated_user_and_command
-from app.dependencies.auth_dep import require_role
 from typing import Tuple
 
-from app.quest.dao import BlocksDAO, QuestionsDAO, AnswersDAO, QuestionInsiderDAO, AttemptsDAO
-from app.logger import logger
-from app.quest.schemas import (
-    BlockFilter,
-    FindAnswersForQuestion,
-    MarkInsiderAttendanceRequest, AnswerRequest, GetAllBlocksResponse, GetBlockResponse, CheckAnswerResponse, HintResponse, RiddleInsidersResponse, MarkAttendanceResponse, GetInsiderTasksResponse, GetCommandsStatsResponse,
-    EventQuestStructureResponse, BlockStructureInfo, QuestionStructureInfo
-)
-from app.quest.models import Attempt, Block
-from sqlalchemy.orm import selectinload
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.quest.utils import compare_strings, build_block_response, get_riddle_data
-
+from app.auth.dao import CommandsDAO, EventsDAO, UsersDAO
+from app.auth.models import Command, CommandsUser, Language, User
+from app.dependencies.auth_dep import get_current_event_name, require_role
+from app.dependencies.dao_dep import get_session_with_commit
+from app.dependencies.quest_dep import get_authenticated_user_and_command
 # Import exceptions
-from app.exceptions import (
-    BlockNotFoundException,
-    RiddleNotFoundException,
-    LanguageMismatchException,
-    RewardAlreadyGivenException,
-    AttemptTypeNotFoundException,
-    HintUnavailableException,
-    InsufficientCoinsException,
-    QuestionNotAssignedException,
-    AttendanceAlreadyMarkedException,
-    CannotMarkUnsolvedException,
-    InternalServerErrorException,
-    EventNotFoundException,
-)
+from app.exceptions import (AttemptTypeNotFoundException,
+                            AttendanceAlreadyMarkedException,
+                            BlockNotFoundException,
+                            CannotMarkUnsolvedException,
+                            EventNotFoundException, HintUnavailableException,
+                            InsufficientCoinsException,
+                            InternalServerErrorException,
+                            LanguageMismatchException,
+                            QuestionNotAssignedException,
+                            RewardAlreadyGivenException,
+                            RiddleNotFoundException)
+from app.logger import logger
+from app.quest.dao import (AnswersDAO, AttemptsDAO, BlocksDAO,
+                           QuestionInsiderDAO, QuestionsDAO)
+from app.quest.models import Attempt, Block
+from app.quest.schemas import (AnswerRequest, BlockFilter, BlockStructureInfo,
+                               CheckAnswerResponse,
+                               EventQuestStructureResponse,
+                               FindAnswersForQuestion, GetAllBlocksResponse,
+                               GetBlockResponse, GetCommandsStatsResponse,
+                               GetInsiderTasksResponse, HintResponse,
+                               MarkAttendanceResponse,
+                               MarkInsiderAttendanceRequest,
+                               QuestionStructureInfo, RiddleInsidersResponse)
+from app.quest.utils import (build_block_response, compare_strings,
+                             get_riddle_data)
 
 router = APIRouter()
 
@@ -69,7 +70,8 @@ async def get_all_quest_blocks(
 @router.get("/commands/stats", response_model=GetCommandsStatsResponse)
 async def get_commands_stats(
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(require_role(["organizer"]))
+    user: User = Depends(require_role(["organizer"])),
+    event_name: str = Depends(get_current_event_name)
 ):
     """Получает статистику по всем командам и решенным ими загадкам"""
     logger.info("Начало получения статистики команд")
@@ -77,7 +79,7 @@ async def get_commands_stats(
     try:
         commands_dao = CommandsDAO(session)
         event_dao = EventsDAO(session)
-        curr_event_id = await event_dao.get_event_id_by_name()
+        curr_event_id = await event_dao.get_event_id_by_name(event_name)
 
         if not curr_event_id:
             logger.error("Не удалось получить информацию о текущем событии")

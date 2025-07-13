@@ -1,22 +1,30 @@
-from fastapi import APIRouter, Response, Depends, Body, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-from app.auth.models import User
-from app.auth.utils import set_tokens
-from app.dependencies.auth_dep import get_access_token, get_current_user
-from app.dependencies.dao_dep import get_session_with_commit, get_session_without_commit
-from app.auth.schemas import CommandInfo, CommandEdit, CompleteRegistrationRequest, TelegramAuthData, UpdateProfileRequest, ProgramScoreAdd, CommandLeaderboardResponse
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
-from app.exceptions import InternalServerErrorException, TokenExpiredException, NotFoundException, ForbiddenException, BadRequestException
-from app.logger import logger
-from fastapi import status
 # Cache imports
 from fastapi_cache.decorator import cache
-from app.auth.utils import user_profile_key_builder
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.models import User
+from app.auth.schemas import (CommandEdit, CommandInfo,
+                              CommandLeaderboardResponse,
+                              CompleteRegistrationRequest, ProgramScoreAdd,
+                              TelegramAuthData, UpdateProfileRequest)
 # Импортируем сервисы
-from app.auth.services import UserService, QRService, CommandService, EventService, StatsService, ProgramService
+from app.auth.services import (CommandService, EventService, ProgramService,
+                               QRService, StatsService, UserService)
+from app.auth.utils import set_tokens, user_profile_key_builder
+from app.dependencies.auth_dep import (get_access_token,
+                                       get_current_event_name,
+                                       get_current_user)
+from app.dependencies.dao_dep import (get_session_with_commit,
+                                      get_session_without_commit)
+from app.exceptions import (BadRequestException, ForbiddenException,
+                            InternalServerErrorException, NotFoundException,
+                            TokenExpiredException)
+from app.logger import logger
 
 router = APIRouter()
 
@@ -235,7 +243,8 @@ async def get_user_command(
 async def command_create(
     request: CommandEdit,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    event_name: str = Depends(get_current_event_name)
 ):
     """Создание новой команды."""
     if not user:
@@ -245,7 +254,7 @@ async def command_create(
     
     try:
         command_service = CommandService(session)
-        await command_service.create_command(user, request)
+        await command_service.create_command(user, request, event_name)
         return JSONResponse(
             status_code=200,
             content={"message": "Команда успешно создана"}
@@ -396,13 +405,14 @@ async def update_profile(
 @router.get("/event/status")
 async def check_event_status(
     session: AsyncSession = Depends(get_session_without_commit), # Changed to without_commit
-    user: Optional[User] = Depends(get_current_user)
+    user: Optional[User] = Depends(get_current_user),
+    event_name: str = Depends(get_current_event_name)
 ):
     """Проверяет, активно ли текущее событие."""
     # TODO: Перенести логику в EventService - DONE
     try:
         event_service = EventService(session)
-        is_active = await event_service.check_event_status(user)
+        is_active = await event_service.check_event_status(user, event_name)
         return {"is_active": is_active}
     except Exception as e:
         # Логика обработки ошибок уже внутри сервиса, но оставим общую защиту
@@ -413,7 +423,8 @@ async def check_event_status(
 @router.get("/stats/registrations")
 async def get_registration_stats(
     session: AsyncSession = Depends(get_session_without_commit), # Changed to without_commit
-    user: User = Depends(get_current_user) # Require user for permission check
+    user: User = Depends(get_current_user), # Require user for permission check
+    event_name: str = Depends(get_current_event_name)
 ):
     """Получает статистику по зарегистрированным пользователям и командам."""
     # TODO: Перенести логику в StatsService - DONE
@@ -424,7 +435,7 @@ async def get_registration_stats(
     
     try:
         stats_service = StatsService(session)
-        stats = await stats_service.get_registration_stats(user)
+        stats = await stats_service.get_registration_stats(user, event_name)
         return JSONResponse(content={"ok": True, "stats": stats})
         
     except ForbiddenException as e:

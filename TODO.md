@@ -6,7 +6,7 @@
 - [ ] Рассмотреть замену `asyncio.sleep` в `app/tasks` на более надежную систему фоновых задач (Celery, ARQ, FastAPI BackgroundTasks).
 - [ ] Унифицировать обработку ошибок API (единый формат ответа).
 - [ ] Увеличить покрытие кода тестами (unit, integration).
-- [ ] **Удалить ручную проверку SQL-инъекций** в `BaseDAO._validate_input` (полагаться на параметризацию SQLAlchemy).
+- [x] **Удалить ручную проверку SQL-инъекций** в `BaseDAO._validate_input` (полагаться на параметризацию SQLAlchemy).
 - [ ] Рассмотреть переход на PostgreSQL в production.
 - [ ] Внедрить кеширование (Redis) для часто запрашиваемых данных.
 - [ ] Добавить Rate Limiting для API эндпоинтов (`slowapi`).

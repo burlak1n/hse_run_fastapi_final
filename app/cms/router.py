@@ -1,18 +1,15 @@
 from sqladmin import Admin, ModelView, BaseView
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import FastAPI, status, Form
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, HTMLResponse, FileResponse, JSONResponse, Response
+from starlette.responses import RedirectResponse, HTMLResponse, JSONResponse, Response
 from starlette.types import ASGIApp
 from sqlalchemy.ext.asyncio import AsyncSession
 from functools import wraps
-from typing import Any, Dict, List, Optional, Callable, TypeVar, Union
+from typing import Any, Optional, Callable, TypeVar
 import os
 from PIL import Image, ImageDraw, ImageFont
 import io
-import uuid
-import json
-from sqlalchemy import func, select, text, cast, Date
 from sqlalchemy.orm import selectinload
 
 from app.config import DEBUG
@@ -21,7 +18,6 @@ from app.cms import views
 from app.dependencies.auth_dep import get_access_token
 from app.dependencies.template_dep import get_templates
 from app.auth.dao import UsersDAO, SessionDAO
-from app.auth.models import User
 from app.logger import logger
 
 # Определяем возвращаемый тип для декораторов

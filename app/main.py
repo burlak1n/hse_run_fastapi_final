@@ -1,41 +1,41 @@
+import time
+import traceback
+import urllib.parse
+import uuid
 from contextlib import asynccontextmanager
-# from prometheus_fastapi_instrumentator import Instrumentator
 from typing import AsyncGenerator, List
-from fastapi import FastAPI, APIRouter, Request, Response, status
+
+from fastapi import APIRouter, FastAPI, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-import traceback
+# Import FastAPI Cache
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.backends.redis import RedisBackend
 from loguru import logger
-from starlette.middleware.base import BaseHTTPMiddleware
-import time
-import urllib.parse
-import uuid
-
-# Import logger and context var from app.logger
-from app.logger import request_id_context
-
+from prometheus_fastapi_instrumentator import Instrumentator
 # Импорты CSRF
 # from fastapi_csrf_protect import CsrfProtect # Removed CSRF import
 # from fastapi_csrf_protect.exceptions import CsrfProtectError # Removed CSRF import
 from pydantic import BaseModel
+from redis import asyncio as aioredis
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.quest.router import router as router_quest
+from app.auth.redis_session import init_redis_session_service
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
-from app.utils.template import render_template
-from app.config import event_config, DEBUG, BASE_URL, settings
+from app.config import (BASE_URL, DEBUG, event_config,
+                        get_event_name_by_domain, settings)
+# Import logger and context var from app.logger
+from app.logger import request_id_context
+from app.quest.router import router as router_quest
 # Import FastStream broker
 from app.tasks.cleanup import broker as cleanup_broker
-# Import FastAPI Cache
-from fastapi_cache import FastAPICache
-from fastapi_cache.backends.redis import RedisBackend
-from fastapi_cache.backends.inmemory import InMemoryBackend
-from redis import asyncio as aioredis
-from app.auth.redis_session import init_redis_session_service
+from app.utils.template import render_template
 
 # Настройки безопасности
 # Получаем домен из BASE_URL для добавления в разрешенные хосты и источники
@@ -44,58 +44,60 @@ base_domain = parsed_url.netloc
 base_scheme = parsed_url.scheme
 
 # Добавляем gopass.dev и hserun.gopass.dev в разрешенные хосты
-ALLOWED_HOSTS = [
-    "localhost", "127.0.0.1", "localhost:8000",
-    base_domain
-]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "localhost:8000", base_domain]
 
 ALLOWED_ORIGINS = [
     "http://localhost",
     "http://127.0.0.1",
     "http://localhost:8000",
     BASE_URL,  # Добавляем полный URL из конфига
-    f"{base_scheme}://{base_domain}"  # Добавляем URL с извлеченным доменом
+    f"{base_scheme}://{base_domain}",  # Добавляем URL с извлеченным доменом
 ]
 # Максимальный размер тела запроса (10 МБ)
-MAX_BODY_SIZE = 3 * 1024 * 1024  
+MAX_BODY_SIZE = 3 * 1024 * 1024
 # Ограничение количества запросов (100 запросов в минуту)
 RATE_LIMIT = 300
 RATE_PERIOD = 60  # секунд
 
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware для ограничения количества запросов с одного IP."""
-    
+
     def __init__(self, app, rate_limit=RATE_LIMIT, period=RATE_PERIOD):
         super().__init__(app)
         self.rate_limit = rate_limit
         self.period = period
         self.ips = {}
-        
+
     async def dispatch(self, request: Request, call_next):
         client_ip = request.client.host
         current_time = time.time()
-        
+
         # Очистка устаревших записей
         if client_ip in self.ips:
-            self.ips[client_ip] = [timestamp for timestamp in self.ips[client_ip] 
-                                if current_time - timestamp < self.period]
+            self.ips[client_ip] = [
+                timestamp
+                for timestamp in self.ips[client_ip]
+                if current_time - timestamp < self.period
+            ]
         else:
             self.ips[client_ip] = []
-            
+
         # Проверка на превышение лимита
         if len(self.ips[client_ip]) >= self.rate_limit:
             return Response(
-                content="Too many requests", 
+                content="Too many requests",
                 status_code=429,
-                headers={"Retry-After": str(self.period)}
+                headers={"Retry-After": str(self.period)},
             )
-            
+
         # Добавляем текущий запрос
         self.ips[client_ip].append(current_time)
-        
+
         # Пропускаем запрос дальше
         response = await call_next(request)
         return response
+
 
 # Middleware for adding Request ID
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -103,42 +105,74 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())
         token = request_id_context.set(request_id)
         request.state.request_id = request_id
-        logger.bind(request_id=request_id).info(f"Request started: {request.method} {request.url.path}")
+        logger.bind(request_id=request_id).info(
+            f"Request started: {request.method} {request.url.path}"
+        )
         try:
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
-            logger.bind(request_id=request_id).info(f"Request finished: {response.status_code}")
+            logger.bind(request_id=request_id).info(
+                f"Request finished: {response.status_code}"
+            )
         except Exception as e:
-            logger.bind(request_id=request_id).exception("Unhandled exception during request")
+            logger.bind(request_id=request_id).exception(
+                "Unhandled exception during request"
+            )
             raise e
         finally:
             request_id_context.reset(token)
         return response
 
+
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     """Middleware для ограничения размера тела запроса."""
-    
+
     def __init__(self, app, max_size: int = MAX_BODY_SIZE):
         super().__init__(app)
         self.max_size = max_size
-        
+
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > self.max_size:
-            return Response(
-                content="Request body too large", 
-                status_code=413
-            )
-            
+            return Response(content="Request body too large", status_code=413)
+
         response = await call_next(request)
         return response
 
+
+class EventDomainMiddleware(BaseHTTPMiddleware):
+    """Middleware для определения события по домену."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Получаем домен из заголовка Host (приоритет) или X-Forwarded-Host
+        host = request.headers.get("host", "")
+        if not host:
+            # Fallback на X-Forwarded-Host если Host не установлен
+            host = request.headers.get("x-forwarded-host", "")
+        
+        if host:
+            # Убираем порт если есть
+            domain = host.split(":")[0]
+            event_name = get_event_name_by_domain(domain)
+            request.state.event_name = event_name
+            logger.info(f"Определено событие '{event_name}' для домена '{domain}'")
+        else:
+            # Fallback на дефолтное событие
+            request.state.event_name = "HSERUN29"
+            logger.warning(
+                "Не удалось определить домен, используется дефолтное событие"
+            )
+
+        response = await call_next(request)
+        return response
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware для добавления заголовков безопасности."""
-    
+
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        
+
         # Защита от XSS
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # Защита от кликджекинга
@@ -150,17 +184,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Cache-Control"] = "no-store, max-age=0"
         else:
             response.headers["Cache-Control"] = "public, max-age=3600"
-        
+
         # HSTS для перенаправления на HTTPS
         if not DEBUG:  # Только в production
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-        
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains; preload"
+            )
+
         # Устанавливаем политику реферера для приватных данных
         if request.url.path.startswith("/api/"):
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         else:
             response.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
-        
+
         # Content-Security-Policy для защиты от XSS
         # Включаем возможность подключения к домену из BASE_URL
         base_domain_csp = f"{base_scheme}://{base_domain}"
@@ -174,43 +210,55 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "frame-ancestors 'self'; "
                 "form-action 'self'"
             )
-        
+
         return response
+
 
 # Настройка Middleware (CORS, TrustedHost, Security, Rate Limiting)
 def setup_middleware(app: FastAPI):
     # Add Request ID Middleware (should be one of the first)
     app.add_middleware(RequestIdMiddleware)
-    
+
+    # Добавляем middleware для определения события по домену
+    app.add_middleware(EventDomainMiddleware)
+
     # Настройка CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE", "PATCH"], # Добавляем методы
-        allow_headers=["*"], # Разрешаем все заголовки, включая X-CSRF-Token
+        allow_methods=[
+            "GET",
+            "POST",
+            "OPTIONS",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ],  # Добавляем методы
+        allow_headers=["*"],  # Разрешаем все заголовки, включая X-CSRF-Token
         max_age=3600,
     )
-    
+
     # Проверка хостов
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
-    
+
     # Добавляем middleware для проверки размера тела запроса
     app.add_middleware(MaxBodySizeMiddleware)
-    
+
     # Отключено, так как может вызывать проблемы с legitimate запросами
     # app.add_middleware(SQLInjectionProtectionMiddleware)
-    
+
     # Добавляем middleware для заголовков безопасности
     app.add_middleware(SecurityHeadersMiddleware)
-    
+
     # Ограничение частоты запросов (только в production)
     if not DEBUG:
         # app.add_middleware(RateLimitMiddleware)
         pass
 
+
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Управление жизненным циклом приложения."""
     logger.info("Инициализация приложения...")
     if settings.USE_REDIS:
@@ -219,94 +267,120 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
             # Start FastStream broker first
             await cleanup_broker.start()
             logger.info("FastStream broker started.")
-            
+
             # Create Redis client directly for FastAPI Cache
-            redis_cache = aioredis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+            redis_cache = aioredis.from_url(
+                settings.REDIS_URL, encoding="utf-8", decode_responses=True
+            )
             FastAPICache.init(RedisBackend(redis_cache), prefix="fastapi-cache")
-            logger.info(f"FastAPI Cache initialized with Redis backend at {settings.REDIS_URL}")
-            
+            logger.info(
+                f"FastAPI Cache initialized with Redis backend at {settings.REDIS_URL}"
+            )
+
             # Initialize Redis session service using FastStream broker
             await init_redis_session_service(cleanup_broker)
             logger.info("Redis session service initialized.")
-            
-        except Exception as e:
-             logger.exception("Failed to initialize Redis features. Check Redis connection and settings.")
-             # Decide if startup should fail. For now, continue without Redis.
-             settings.USE_REDIS = False # Disable Redis usage if init fails
-             FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
-             logger.warning("Falling back to InMemory cache.")
+
+        except Exception:
+            logger.exception(
+                "Failed to initialize Redis features. Check Redis connection and settings."
+            )
+            # Decide if startup should fail. For now, continue without Redis.
+            settings.USE_REDIS = False  # Disable Redis usage if init fails
+            FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
+            logger.warning("Falling back to InMemory cache.")
     else:
         logger.info("Redis is DISABLED. Using InMemory cache.")
         # Initialize with InMemory backend if Redis is disabled
         FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
         logger.info("FastAPI Cache initialized with InMemory backend.")
 
-    yield # Application runs here
-    
+    yield  # Application runs here
+
     logger.info("Завершение работы приложения...")
     if settings.USE_REDIS:
         # Stop FastStream broker if it was used
         try:
-             await cleanup_broker.close()
-             logger.info("FastStream broker stopped.")
-        except Exception as e:
-             logger.exception("Error stopping FastStream broker.")
-            
+            await cleanup_broker.stop()
+            logger.info("FastStream broker stopped.")
+        except Exception:
+            logger.exception("Error stopping FastStream broker.")
+
     # Close cache connection if Redis was used and initialized
     if settings.USE_REDIS:
         try:
-            await FastAPICache.clear() # Clear cache keys if needed
+            await FastAPICache.clear()  # Clear cache keys if needed
             logger.info("Redis cache cleared.")
-        except Exception as e:
-             logger.exception("Error clearing Redis cache.")
+        except Exception:
+            logger.exception("Error clearing Redis cache.")
     else:
-         # Clear in-memory cache if needed (optional)
-         await FastAPICache.clear()
-         logger.info("InMemory cache cleared.")
+        # Clear in-memory cache if needed (optional)
+        await FastAPICache.clear()
+        logger.info("InMemory cache cleared.")
 
 
 # Unified Error Handlers
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     """Handles FastAPI validation errors, returning a unified error response."""
     errors = []
     for error in exc.errors():
-        errors.append(ErrorDetail(
-            field=".".join(str(loc) for loc in error["loc"]) if "loc" in error else None,
-            message=error["msg"],
-            type=error["type"]
-        ))
-    logger.warning(f"Validation error for {request.method} {request.url.path}: {errors}")
+        errors.append(
+            ErrorDetail(
+                field=".".join(str(loc) for loc in error["loc"])
+                if "loc" in error
+                else None,
+                message=error["msg"],
+                type=error["type"],
+            )
+        )
+    logger.warning(
+        f"Validation error for {request.method} {request.url.path}: {errors}"
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=ErrorResponse(error=errors).dict()
+        content=ErrorResponse(error=errors).dict(),
     )
 
-async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     """Handles FastAPI/Starlette HTTP exceptions, returning a unified error response."""
     error_detail = ErrorDetail(message=exc.detail, type="http_exception")
-    logger.warning(f"HTTP exception for {request.method} {request.url.path}: {exc.status_code} - {exc.detail}")
+    logger.warning(
+        f"HTTP exception for {request.method} {request.url.path}: {exc.status_code} - {exc.detail}"
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(error=error_detail).dict(),
-        headers=getattr(exc, "headers", None) # Preserve original headers if any
+        headers=getattr(exc, "headers", None),  # Preserve original headers if any
     )
+
 
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handles all other exceptions, returning a generic unified error response."""
     # Log the full traceback for unexpected errors
-    tb_str = ''.join(traceback.format_exception(exc))
-    logger.error(f"Unhandled exception for {request.method} {request.url.path}:\n{tb_str}")
+    tb_str = "".join(traceback.format_exception(exc))
+    logger.error(
+        f"Unhandled exception for {request.method} {request.url.path}:\n{tb_str}"
+    )
 
     error_detail = ErrorDetail(
-        message="Internal Server Error" if not DEBUG else str(exc), # Avoid leaking details in production
-        type=exc.__class__.__name__
+        message="Internal Server Error"
+        if not DEBUG
+        else str(exc),  # Avoid leaking details in production
+        type=exc.__class__.__name__,
     )
 
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=ErrorResponse(error=error_detail).dict()
+        content=ErrorResponse(error=error_detail).dict(),
     )
+
 
 # Unified Error Response Model
 class ErrorDetail(BaseModel):
@@ -314,9 +388,11 @@ class ErrorDetail(BaseModel):
     message: str
     type: str | None = None
 
+
 class ErrorResponse(BaseModel):
     success: bool = False
     error: ErrorDetail | List[ErrorDetail]
+
 
 def create_app() -> FastAPI:
     """
@@ -324,7 +400,7 @@ def create_app() -> FastAPI:
     Включает в себя настройку middleware, регистрацию роутеров,
     обработчики ошибок и статические файлы.
     """
-    
+
     app = FastAPI(
         title=event_config.name,
         description=event_config.description,
@@ -335,19 +411,15 @@ def create_app() -> FastAPI:
         exception_handlers={
             RequestValidationError: validation_exception_handler,
             StarletteHTTPException: http_exception_handler,
-            Exception: general_exception_handler
-        }
+            Exception: general_exception_handler,
+        },
     )
-    
+
     # Настройка middleware
     setup_middleware(app)
-    
+
     # Монтирование статических файлов
-    app.mount(
-        '/static',
-        StaticFiles(directory='app/static'),
-        name='static'
-    )
+    app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
     # Регистрация роутеров
     register_routers(app)
@@ -361,29 +433,30 @@ def register_routers(app: FastAPI) -> None:
     root_router = APIRouter()
 
     if DEBUG:
+
         @root_router.get("/", tags=["root"])
         async def home_page(request: Request):
-            return render_template(request, "index.html", {"event_config": event_config})
+            return render_template("index.html", request, {"event_config": event_config})
 
         @root_router.get("/registration", tags=["registration"])
         async def registration_page(request: Request):
-            return render_template(request, "registration.html", {"event_config": event_config})
+            return render_template("registration.html", request, {"event_config": event_config})
 
         @root_router.get("/quest", tags=["quest"])
         async def quest_page(request: Request):
-            return render_template(request, "quest.html")
+            return render_template("quest.html", request)
 
         @root_router.get("/quest/{block_id}", tags=["quest"])
         async def quest_block_page(request: Request, block_id: int):
-            return render_template(request, "block.html", {"block_id": block_id})
+            return render_template("block.html", request, {"block_id": block_id})
 
         @root_router.get("/profile", tags=["profile"])
         async def profile_page(request: Request):
-            return render_template(request, "profile.html")
+            return render_template("profile.html", request)
 
         @root_router.get("/qr/verify", tags=["qr_verify"])
         async def qr_verify_page(request: Request):
-            return render_template(request, "qrverify.html")
+            return render_template("qrverify.html", request)
     else:
         pass
         # @root_router.get("/", tags=["root"])
@@ -401,18 +474,20 @@ def register_routers(app: FastAPI) -> None:
 
     app.include_router(root_router)
 
-    api_router = APIRouter(prefix='/api')
+    api_router = APIRouter(prefix="/api")
 
     # Подключаем все роутеры к API роутеру
-    api_router.include_router(router_auth, prefix='/auth', tags=['Auth'])
-    api_router.include_router(router_quest, prefix='/quest', tags=['Quest'])
+    api_router.include_router(router_auth, prefix="/auth", tags=["Auth"])
+    api_router.include_router(router_quest, prefix="/quest", tags=["Quest"])
 
     # Подключаем основной API роутер к приложению
     app.include_router(api_router)
-    
+
     # Указываем протокол для админки
-    base_url = '/admin/database'
+    base_url = "/admin/database"
     init_admin(app, base_url=base_url)
+
 
 # Создание экземпляра приложения
 app = create_app()
+Instrumentator().instrument(app).expose(app)
