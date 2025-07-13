@@ -11,14 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-
 # Import FastAPI Cache
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.backends.redis import RedisBackend
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
-
 # Импорты CSRF
 # from fastapi_csrf_protect import CsrfProtect # Removed CSRF import
 # from fastapi_csrf_protect.exceptions import CsrfProtectError # Removed CSRF import
@@ -30,12 +28,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.auth.redis_session import init_redis_session_service
 from app.auth.router import router as router_auth
 from app.cms.router import init_admin
-from app.config import BASE_URL, DEBUG, event_config, settings
-
+from app.config import (BASE_URL, DEBUG, event_config,
+                        get_event_name_by_domain, settings)
 # Import logger and context var from app.logger
 from app.logger import request_id_context
 from app.quest.router import router as router_quest
-
 # Import FastStream broker
 from app.tasks.cleanup import broker as cleanup_broker
 from app.utils.template import render_template
@@ -147,8 +144,12 @@ class EventDomainMiddleware(BaseHTTPMiddleware):
     """Middleware для определения события по домену."""
 
     async def dispatch(self, request: Request, call_next):
-        # Получаем домен из заголовка Host
+        # Получаем домен из заголовка Host (приоритет) или X-Forwarded-Host
         host = request.headers.get("host", "")
+        if not host:
+            # Fallback на X-Forwarded-Host если Host не установлен
+            host = request.headers.get("x-forwarded-host", "")
+        
         if host:
             # Убираем порт если есть
             domain = host.split(":")[0]
@@ -257,7 +258,7 @@ def setup_middleware(app: FastAPI):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Управление жизненным циклом приложения."""
     logger.info("Инициализация приложения...")
     if settings.USE_REDIS:
@@ -300,7 +301,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[dict, None]:
     if settings.USE_REDIS:
         # Stop FastStream broker if it was used
         try:
-            await cleanup_broker.close()
+            await cleanup_broker.stop()
             logger.info("FastStream broker stopped.")
         except Exception:
             logger.exception("Error stopping FastStream broker.")
@@ -435,31 +436,27 @@ def register_routers(app: FastAPI) -> None:
 
         @root_router.get("/", tags=["root"])
         async def home_page(request: Request):
-            return render_template(
-                request, "index.html", {"event_config": event_config}
-            )
+            return render_template("index.html", request, {"event_config": event_config})
 
         @root_router.get("/registration", tags=["registration"])
         async def registration_page(request: Request):
-            return render_template(
-                request, "registration.html", {"event_config": event_config}
-            )
+            return render_template("registration.html", request, {"event_config": event_config})
 
         @root_router.get("/quest", tags=["quest"])
         async def quest_page(request: Request):
-            return render_template(request, "quest.html")
+            return render_template("quest.html", request)
 
         @root_router.get("/quest/{block_id}", tags=["quest"])
         async def quest_block_page(request: Request, block_id: int):
-            return render_template(request, "block.html", {"block_id": block_id})
+            return render_template("block.html", request, {"block_id": block_id})
 
         @root_router.get("/profile", tags=["profile"])
         async def profile_page(request: Request):
-            return render_template(request, "profile.html")
+            return render_template("profile.html", request)
 
         @root_router.get("/qr/verify", tags=["qr_verify"])
         async def qr_verify_page(request: Request):
-            return render_template(request, "qrverify.html")
+            return render_template("qrverify.html", request)
     else:
         pass
         # @root_router.get("/", tags=["root"])

@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from app.dependencies.template_dep import get_templates
@@ -14,7 +15,7 @@ base_domain_csp = f"{base_scheme}://{base_domain}"
 
 STATIC_HTML_DIR = Path("app/static/html")
 
-def render_template(template_name: str, request: Request = None, **context):
+def render_template(template_name: str, request: Optional[Request] = None, **context):
     """
     Рендерит HTML шаблон.
     
