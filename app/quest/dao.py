@@ -34,7 +34,7 @@ class BlocksDAO(BaseDAO):
                 self.model.language_id == language_id
             )
             result = await self._session.execute(query)
-            records = result.scalars().all()
+            records = result.unique().scalars().all()
             logger.info(f"Найдено {len(records)} блоков для события {event_id} и языка {language_id}")
             return records
         except SQLAlchemyError as e:
