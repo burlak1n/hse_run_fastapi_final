@@ -1,157 +1,156 @@
 from fastapi import status, HTTPException
 
-NotFoundException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Не найдено'
-)
+class NotFoundException(Exception):
+    def __init__(self, detail='Не найдено'):
+        self.detail = detail
+        super().__init__(detail)
 
-BadRequestException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Некорректный запрос'
-)
+class BadRequestException(Exception):
+    def __init__(self, detail='Некорректный запрос'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Пользователь уже существует
-UserAlreadyExistsException = HTTPException(
-    status_code=status.HTTP_409_CONFLICT,
-    detail='Пользователь уже существует'
-)
+class UserAlreadyExistsException(Exception):
+    def __init__(self, detail='Пользователь уже существует'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Пользователь не найден
-UserNotFoundException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Пользователь не найден'
-)
+class UserNotFoundException(Exception):
+    def __init__(self, detail='Пользователь не найден'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Отсутствует идентификатор пользователя
-UserIdNotFoundException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Отсутствует идентификатор пользователя'
-)
+class UserIdNotFoundException(Exception):
+    def __init__(self, detail='Отсутствует идентификатор пользователя'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Неверный идентификатор или пароль
-IncorrectTelegramIdOrPasswordException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Неверный идентификатор или пароль'
-)
+class IncorrectTelegramIdOrPasswordException(Exception):
+    def __init__(self, detail='Неверный идентификатор или пароль'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Токен истек
-TokenExpiredException = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail='Токен истек'
-)
+class TokenExpiredException(Exception):
+    def __init__(self, detail='Токен истек'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Некорректный формат токена
-InvalidTokenFormatException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Некорректный формат токена'
-)
-
+class InvalidTokenFormatException(Exception):
+    def __init__(self, detail='Некорректный формат токена'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Токен отсутствует в заголовке
-TokenNoFound = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Токен не найден'
-)
+class TokenNoFound(Exception):
+    def __init__(self, detail='Токен не найден'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Невалидный JWT токен
-NoJwtException = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail='Токен не валидный'
-)
+class NoJwtException(Exception):
+    def __init__(self, detail='Токен не валидный'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Не найден ID пользователя
-NoUserIdException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Не найден ID пользователя'
-)
+class NoUserIdException(Exception):
+    def __init__(self, detail='Не найден ID пользователя'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Недостаточно прав
-ForbiddenException = HTTPException(
-    status_code=status.HTTP_403_FORBIDDEN,
-    detail='Недостаточно прав'
-)
+class ForbiddenException(Exception):
+    def __init__(self, detail='Недостаточно прав'):
+        self.detail = detail
+        super().__init__(detail)
 
-TokenInvalidFormatException = HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Неверный формат токена. Ожидается 'Bearer <токен>'"
-)
+class TokenInvalidFormatException(Exception):
+    def __init__(self, detail="Неверный формат токена. Ожидается 'Bearer <токен>'"):
+        self.detail = detail
+        super().__init__(detail)
 
 # Событие не найдено
-EventNotFoundException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Событие не найдено'
-)
+class EventNotFoundException(Exception):
+    def __init__(self, detail='Событие не найдено'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Внутренняя ошибка сервера
-InternalServerErrorException = HTTPException(
-    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    detail='Внутренняя ошибка сервера'
-)
+class InternalServerErrorException(Exception):
+    def __init__(self, detail='Внутренняя ошибка сервера'):
+        self.detail = detail
+        super().__init__(detail)
 
 # --- Quest Specific Exceptions ---
 
 # Пользователь не состоит в команде
-UserNotInCommandException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Пользователь не состоит ни в одной команде'
-)
+class UserNotInCommandException(Exception):
+    def __init__(self, detail='Пользователь не состоит ни в одной команде'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Блок не найден
-BlockNotFoundException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Блок квеста не найден'
-)
+class BlockNotFoundException(Exception):
+    def __init__(self, detail='Блок квеста не найден'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Загадка не найдена
-RiddleNotFoundException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Загадка не найдена'
-)
+class RiddleNotFoundException(Exception):
+    def __init__(self, detail='Загадка не найдена'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Несоответствие языка блока и команды
-LanguageMismatchException = HTTPException(
-    status_code=status.HTTP_403_FORBIDDEN,
-    detail='Язык блока не совпадает с языком команды'
-)
+class LanguageMismatchException(Exception):
+    def __init__(self, detail='Язык блока не совпадает с языком команды'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Награда за загадку уже выдана
-RewardAlreadyGivenException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Награда за эту загадку уже была выдана команде'
-)
+class RewardAlreadyGivenException(Exception):
+    def __init__(self, detail='Награда за эту загадку уже была выдана команде'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Тип попытки не найден (ошибка конфигурации)
-AttemptTypeNotFoundException = HTTPException(
-    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    detail='Тип попытки не найден в базе данных'
-)
+class AttemptTypeNotFoundException(Exception):
+    def __init__(self, detail='Тип попытки не найден в базе данных'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Подсказка недоступна для этой загадки
-HintUnavailableException = HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail='Подсказка недоступна для этой загадки'
-)
+class HintUnavailableException(Exception):
+    def __init__(self, detail='Подсказка недоступна для этой загадки'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Недостаточно монет
-InsufficientCoinsException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Недостаточно монет для выполнения операции'
-)
+class InsufficientCoinsException(Exception):
+    def __init__(self, detail='Недостаточно монет для выполнения операции'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Вопрос не назначен инсайдеру
-QuestionNotAssignedException = HTTPException(
-    status_code=status.HTTP_403_FORBIDDEN,
-    detail='Этот вопрос не назначен вам'
-)
+class QuestionNotAssignedException(Exception):
+    def __init__(self, detail='Этот вопрос не назначен вам'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Посещение уже отмечено
-AttendanceAlreadyMarkedException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Посещение этого места для данной команды уже было отмечено'
-)
+class AttendanceAlreadyMarkedException(Exception):
+    def __init__(self, detail='Посещение этого места для данной команды уже было отмечено'):
+        self.detail = detail
+        super().__init__(detail)
 
 # Нельзя отметить посещение нерешенной загадки
-CannotMarkUnsolvedException = HTTPException(
-    status_code=status.HTTP_400_BAD_REQUEST,
-    detail='Невозможно отметить посещение: команда еще не решила эту загадку'
-)
+class CannotMarkUnsolvedException(Exception):
+    def __init__(self, detail='Невозможно отметить посещение: команда еще не решила эту загадку'):
+        self.detail = detail
+        super().__init__(detail)

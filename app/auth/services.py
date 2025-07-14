@@ -13,7 +13,7 @@ from app.auth.dao import (CommandsDAO, CommandsUsersDAO, EventsDAO,
 from app.auth.models import Command, CommandsUser, User
 from app.auth.schemas import (CommandBase, CommandEdit, CommandInfo,
                               CommandLeaderboardData, CommandLeaderboardEntry,
-                              CommandName, CommandsUserBase,
+                              CommandName, CommandNameAndEvent, CommandsUserBase,
                               CompleteRegistrationRequest, ProgramScoreAdd,
                               ProgramScoreInfo, ProgramScoreTotal, RoleFilter,
                               RoleModel, SUserAddDB, TelegramAuthData,
@@ -105,14 +105,11 @@ class UserService:
                 logger.error(f"Ошибка при сохранении информации инсайдера {user.id}: {e}")
                 raise InternalServerErrorException("Ошибка при сохранении дополнительной информации")
 
-    async def get_user_profile(self, user_id: int) -> Dict[str, Any]:
+    async def get_user_profile(self, user_id: int, event_id: int) -> Dict[str, Any]:
         """Получает расширенную информацию о профиле пользователя."""
         user = await self.users_dao.find_one_by_id(
             user_id,
             options=[
-                selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.user).selectinload(User.role), # Добавили роль участника
-                selectinload(User.commands).joinedload(CommandsUser.command).joinedload(Command.users).joinedload(CommandsUser.role),
-                selectinload(User.commands).joinedload(CommandsUser.role),
                 selectinload(User.role),
                 selectinload(User.insider_info)
             ]
@@ -120,17 +117,30 @@ class UserService:
         if not user:
             raise NotFoundException("Пользователь не найден")
 
+        # Получаем команду пользователя только для текущего события
+        command = await self.users_dao.find_user_command_in_event(
+            user_id=user_id,
+            event_id=event_id
+        )
+
         # Перемещаем форматирование участников в utils
         from .utils import format_participants 
         commands_info = []
-        for cu in user.commands:
-            participants = format_participants(cu.command.users, include_role=True)
+        if command:
+            participants = format_participants(command.users, include_role=True)
+            # Находим роль пользователя в команде
+            user_role = None
+            for cu in command.users:
+                if cu.user_id == user_id:
+                    user_role = cu.role.name
+                    break
+            
             command_info = CommandInfo(
-                id=cu.command.id,
-                name=cu.command.name,
-                role=cu.role.name,
-                event_id=cu.command.event_id,
-                language_id=cu.command.language_id,
+                id=command.id,
+                name=command.name,
+                role=user_role or "member",
+                event_id=command.event_id,
+                language_id=command.language_id,
                 participants=participants
             ).model_dump()
             commands_info.append(command_info)
@@ -253,7 +263,7 @@ class QRService:
             "qr_image": base64.b64encode(qr_data).decode("utf-8")
         }
 
-    async def verify_qr_and_get_info(self, scanner_user: User, qr_token: str) -> Dict[str, Any]:
+    async def verify_qr_and_get_info(self, scanner_user: User, qr_token: str, event_id: int) -> Dict[str, Any]:
         """Проверяет QR-код и возвращает информацию в зависимости от роли сканирующего."""
         
         from .utils import format_participants  # Импорт внутри метода
@@ -280,12 +290,10 @@ class QRService:
             logger.error(f"Ошибка при получении пользователя по QR-коду {qr_token}: {e}")
             raise InternalServerErrorException("Ошибка при проверке QR-кода.")
 
+        # Получаем команду пользователя из QR для конкретного события
         qr_user_command = await self.users_dao.find_user_command_in_event(
              user_id=qr_user.id,
-             options=[ # Загружаем необходимые связи для format_participants
-                 selectinload(Command.users).selectinload(CommandsUser.user).selectinload(User.role),
-                 selectinload(Command.users).selectinload(CommandsUser.role)
-             ]
+             event_id=event_id
          )
         if not qr_user_command:
             logger.warning(f"Пользователь {qr_user.id} (из QR) не состоит в команде")
@@ -293,7 +301,8 @@ class QRService:
 
         qr_user_role_name, is_captain = get_user_role_in_command(qr_user_command.users, qr_user.id)
 
-        scanner_user_command = await self.users_dao.find_user_command_in_event(user_id=scanner_user.id)
+        # Получаем команду сканирующего пользователя для конкретного события
+        scanner_user_command = await self.users_dao.find_user_command_in_event(user_id=scanner_user.id, event_id=event_id)
 
         scanner_role_name = scanner_user.role.name if scanner_user.role else None
         
@@ -382,9 +391,9 @@ class CommandService:
         self.roles_users_dao = RolesUsersCommandDAO(session)
         self.events_dao = EventsDAO(session)
 
-    async def get_user_command_info(self, user_id: int) -> Command:
+    async def get_user_command_info(self, user_id: int, event_id: int) -> Command:
         """Получает информацию о команде текущего пользователя для текущего события."""
-        command = await self.users_dao.find_user_command_in_event(user_id=user_id)
+        command = await self.users_dao.find_user_command_in_event(user_id=user_id, event_id=event_id)
         if not command:
             raise NotFoundException("Команда не найдена")
         return command # Возвращаем ORM модель, валидация будет в роутере
@@ -396,9 +405,9 @@ class CommandService:
             logger.error(f"Не удалось получить ID события '{event_name}' при создании команды")
             raise InternalServerErrorException("Не удалось получить информацию о текущем событии.")
 
-        existing_command = await self.commands_dao.find_one_or_none(filters=CommandName(name=command_data.name))
+        existing_command = await self.commands_dao.find_one_or_none(filters=CommandNameAndEvent(name=command_data.name, event_id=curr_event_id))
         if existing_command:
-            logger.warning(f"Попытка создать команду с существующим именем: {command_data.name}")
+            logger.warning(f"Попытка создать команду с существующим именем: {command_data.name} в событии {event_name}")
             raise BadRequestException("Команда с таким названием уже существует.")
 
         command = await self.commands_dao.add(values=CommandBase(
@@ -420,11 +429,11 @@ class CommandService:
         ))
         logger.info(f"Пользователь {user.id} назначен капитаном команды {command.id}")
 
-    async def _validate_captain(self, user_id: int) -> Command:
+    async def _validate_captain(self, user_id: int, event_id: int) -> Command:
         """Проверяет, является ли пользователь капитаном своей команды, и возвращает команду."""
         command = await self.users_dao.find_user_command_in_event(
             user_id=user_id,
-            options=[selectinload(Command.users).selectinload(CommandsUser.role)]
+            event_id=event_id
         )
         if not command:
             raise NotFoundException("Команда не найдена")
@@ -435,29 +444,29 @@ class CommandService:
             raise ForbiddenException("Только капитан может выполнить это действие")
         return command
 
-    async def delete_command(self, user: User) -> None:
+    async def delete_command(self, user: User, event_id: int) -> None:
         """Удаляет команду, если пользователь является капитаном."""
-        command = await self._validate_captain(user.id)
+        command = await self._validate_captain(user.id, event_id)
         await self.commands_dao.delete_by_id(command.id)
         logger.info(f"Команда {command.id} удалена капитаном {user.id}")
 
-    async def rename_command(self, user: User, command_data: CommandEdit) -> None:
+    async def rename_command(self, user: User, command_data: CommandEdit, event_id: int) -> None:
         """Переименовывает команду и обновляет язык, если пользователь является капитаном."""
-        command = await self._validate_captain(user.id)
+        command = await self._validate_captain(user.id, event_id)
         
-        existing_command = await self.commands_dao.find_one_or_none(filters=CommandName(name=command_data.name))
+        existing_command = await self.commands_dao.find_one_or_none(filters=CommandNameAndEvent(name=command_data.name, event_id=event_id))
         if existing_command and existing_command.id != command.id:
-            logger.warning(f"Попытка переименовать команду {command.id} в существующее имя: {command_data.name}")
+            logger.warning(f"Попытка переименовать команду {command.id} в существующее имя: {command_data.name} в событии {event_id}")
             raise BadRequestException("Команда с таким названием уже существует.")
             
         await self.commands_dao.update_name(command.id, command_data.name, command_data.language_id)
         logger.info(f"Команда {command.id} переименована капитаном {user.id} в '{command_data.name}'")
 
-    async def leave_command(self, user: User) -> None:
+    async def leave_command(self, user: User, event_id: int) -> None:
         """Позволяет пользователю покинуть команду, если он не капитан."""
         command = await self.users_dao.find_user_command_in_event(
             user_id=user.id,
-            options=[selectinload(Command.users).selectinload(CommandsUser.role)]
+            event_id=event_id
         )
         if not command:
             raise NotFoundException("Команда не найдена")
@@ -470,9 +479,9 @@ class CommandService:
         await self.commands_users_dao.delete_by_user_id(user.id)
         logger.info(f"Пользователь {user.id} покинул команду {command.id}")
 
-    async def remove_user_from_command(self, captain: User, user_to_remove_id: int) -> None:
+    async def remove_user_from_command(self, captain: User, user_to_remove_id: int, event_id: int) -> None:
         """Удаляет пользователя из команды, если текущий пользователь - капитан, а удаляемый - нет."""
-        command = await self._validate_captain(captain.id) # Проверяем, что текущий юзер - капитан
+        command = await self._validate_captain(captain.id, event_id) # Проверяем, что текущий юзер - капитан
         
         target_user_command_user = next((cu for cu in command.users if cu.user_id == user_to_remove_id), None)
         if not target_user_command_user:
@@ -487,7 +496,7 @@ class CommandService:
         await self.commands_users_dao.delete_by_user_id(user_to_remove_id)
         logger.info(f"Капитан {captain.id} исключил пользователя {user_to_remove_id} из команды {command.id}")
 
-    async def join_command_via_qr(self, scanner_user: User, qr_token: str) -> None:
+    async def join_command_via_qr(self, scanner_user: User, qr_token: str, event_id: int) -> None:
         """Обрабатывает присоединение пользователя к команде через QR-токен капитана."""
         from .utils import get_user_role_in_command
 
@@ -507,13 +516,10 @@ class CommandService:
             logger.error(f"Ошибка при получении пользователя по QR-коду {qr_token[:5]}... : {e}", exc_info=True)
             raise InternalServerErrorException("Ошибка при проверке QR-кода.")
         
-        # 2. Получаем команду владельца QR
+        # 2. Получаем команду владельца QR для конкретного события
         qr_user_command = await self.users_dao.find_user_command_in_event(
-            user_id=qr_user.id, 
-            options=[
-                selectinload(Command.users).selectinload(CommandsUser.user),
-                selectinload(Command.users).selectinload(CommandsUser.role)
-            ]
+            user_id=qr_user.id,
+            event_id=event_id
         )
         if not qr_user_command:
             raise BadRequestException("Пользователь не состоит в команде")
@@ -524,7 +530,7 @@ class CommandService:
             raise BadRequestException("Только QR капитана команды позволяет присоединиться")
             
         # 4. Проверяем, не состоит ли сканирующий пользователь уже в команде
-        scanner_user_command = await self.users_dao.find_user_command_in_event(user_id=scanner_user.id)
+        scanner_user_command = await self.users_dao.find_user_command_in_event(user_id=scanner_user.id, event_id=event_id)
         if scanner_user_command:
             raise BadRequestException("Вы уже состоите в другой команде")
             
@@ -640,7 +646,7 @@ class ProgramService:
             logger.error(f"Ошибка при получении информации о баллах для {target_user_id}: {str(e)}", exc_info=True)
             raise InternalServerErrorException("Ошибка при получении информации о баллах")
 
-    async def qr_add_score(self, token: str, score_data: ProgramScoreAdd, scanner_user: User) -> Dict[str, Any]:
+    async def qr_add_score(self, token: str, score_data: ProgramScoreAdd, scanner_user: User, event_id: int) -> Dict[str, Any]:
         """Добавляет баллы по QR-коду с проверкой прав сканирующего."""
         logger.info(f"Попытка добавления баллов по QR-коду пользователем {scanner_user.id}")
 
@@ -650,11 +656,15 @@ class ProgramService:
 
         try:
             # Получаем пользователя, чей QR сканировали (валидирует токен)
-            # Используем зависимость get_current_user напрямую, передавая ей токен и сессию
-            qr_user = await get_current_user(token, self.session) # Передаем сессию сервиса
-            if not qr_user:
-                # get_current_user должен был вызвать исключение, но для надежности
+            # Используем SessionDAO для валидации токена и получения пользователя
+            session_dao = SessionDAO(self.session)
+            qr_user_session = await session_dao.get_session(token)
+            if not qr_user_session:
                 raise TokenExpiredException("Недействительный или истекший QR-код.")
+                
+            qr_user = await self.users_dao.find_one_by_id(qr_user_session.user_id)
+            if not qr_user:
+                raise NotFoundException("Пользователь по QR-коду не найден.")
 
             # Добавляем баллы
             await self.program_dao.add_score(

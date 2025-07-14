@@ -44,12 +44,9 @@ async def get_current_event_id(
     session: AsyncSession = Depends(get_session_without_commit)
 ) -> int:
     """Получает ID текущего события по домену."""
-    # Получаем домен из request
-    host = request.headers.get("host", "").split(":")[0]  # Убираем порт если есть
-    
-    # Определяем имя события по домену
-    event_name = DOMAIN_EVENT_MAPPING.get(host, "HSERUN29")
-    logger.debug(f"Домен {host} соответствует событию: {event_name}")
+    # Используем уже установленное имя события из middleware
+    event_name = get_current_event_name(request)
+    logger.debug(f"Используется событие из request.state: {event_name}")
     
     # Получаем ID события из базы
     events_dao = EventsDAO(session)

@@ -17,6 +17,7 @@ from app.auth.services import (CommandService, EventService, ProgramService,
 from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import (get_access_token,
                                        get_current_event_name,
+                                       get_current_event_id,
                                        get_current_user)
 from app.dependencies.dao_dep import (get_session_with_commit,
                                       get_session_without_commit)
@@ -83,7 +84,8 @@ async def logout(response: Response):
 @router.get("/me")
 async def get_me(
     user_data: Optional[User] = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session_without_commit) # Используем без коммита, т.к. только чтение
+    session: AsyncSession = Depends(get_session_without_commit), # Используем без коммита, т.к. только чтение
+    event_id: int = Depends(get_current_event_id)
 ):
     """Получение информации о текущем пользователе."""
     # This log might run even on cache hit if Depends runs first, let's log inside the try block
@@ -101,7 +103,7 @@ async def get_me(
     
     try:
         user_service = UserService(session)
-        user_profile = await user_service.get_user_profile(user_data.id)
+        user_profile = await user_service.get_user_profile(user_data.id, event_id)
         return user_profile
     except NotFoundException as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -155,7 +157,8 @@ async def toggle_looking_for_team(
 async def verify_qr(
     request: QRVerifyRequest,
     scanner_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session_without_commit) # Только чтение
+    session: AsyncSession = Depends(get_session_without_commit), # Только чтение
+    event_id: int = Depends(get_current_event_id)
 ):
     """Проверка QR-кода и получение информации."""
     if not scanner_user:
@@ -165,7 +168,7 @@ async def verify_qr(
     
     try:
         qr_service = QRService(session)
-        result = await qr_service.verify_qr_and_get_info(scanner_user, request.token)
+        result = await qr_service.verify_qr_and_get_info(scanner_user, request.token, event_id)
         return result # Сервис сам формирует нужный ответ
     except TokenExpiredException as e:
         raise HTTPException(status_code=401, detail=str(e))
@@ -189,7 +192,8 @@ class JoinTeamRequest(BaseModel):
 async def join_team(
     request: JoinTeamRequest,
     scanner_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session_with_commit) # Нужен коммит
+    session: AsyncSession = Depends(get_session_with_commit), # Нужен коммит
+    event_id: int = Depends(get_current_event_id)
 ):
     """Присоединение к команде через QR-код (по токену)."""
     logger.info(f"Запрос на присоединение к команде от пользователя {scanner_user.id}")
@@ -199,7 +203,7 @@ async def join_team(
         
     try:
         command_service = CommandService(session)
-        await command_service.join_command_via_qr(scanner_user, request.token)
+        await command_service.join_command_via_qr(scanner_user, request.token, event_id)
         return {"ok": True, "message": "Вы успешно добавлены в команду"}
     except TokenExpiredException as e:
         raise HTTPException(status_code=401, detail=str(e))
@@ -220,14 +224,15 @@ async def join_team(
 @router.get("/command")
 async def get_user_command(
     session: AsyncSession = Depends(get_session_without_commit), # Только чтение
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    event_id: int = Depends(get_current_event_id)
 ) -> CommandInfo:
     """Получение информации о команде текущего пользователя."""
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не авторизован")
     try:
         command_service = CommandService(session)
-        command = await command_service.get_user_command_info(user.id)
+        command = await command_service.get_user_command_info(user.id, event_id)
         # Валидация в схему Pydantic происходит здесь
         return CommandInfo.model_validate(command)
     except NotFoundException as e:
@@ -269,7 +274,8 @@ async def command_create(
 @router.post("/command/delete")
 async def delete_command(
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    event_id: int = Depends(get_current_event_id)
 ):
     """Удаление команды капитаном."""
     if not user:
@@ -279,7 +285,7 @@ async def delete_command(
     
     try:
         command_service = CommandService(session)
-        await command_service.delete_command(user)
+        await command_service.delete_command(user, event_id)
         return JSONResponse(
             status_code=200,
             content={"message": "Команда успешно удалена"}
@@ -298,7 +304,8 @@ async def delete_command(
 async def rename_command(
     request: CommandEdit,
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    event_id: int = Depends(get_current_event_id)
 ):
     """Переименование команды капитаном."""
     if not user:
@@ -308,7 +315,7 @@ async def rename_command(
     
     try:
         command_service = CommandService(session)
-        await command_service.rename_command(user, request)
+        await command_service.rename_command(user, request, event_id)
         return JSONResponse(
             status_code=200,
             content={"message": "Команда успешно обновлена"}
@@ -327,7 +334,8 @@ async def rename_command(
 @router.post("/command/leave")
 async def leave_command(
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    event_id: int = Depends(get_current_event_id)
 ):
     """Выход пользователя из команды."""
     if not user:
@@ -337,7 +345,7 @@ async def leave_command(
     
     try:
         command_service = CommandService(session)
-        await command_service.leave_command(user)
+        await command_service.leave_command(user, event_id)
         return JSONResponse(
             status_code=200,
             content={"message": "Вы успешно покинули команду"}
@@ -355,7 +363,8 @@ async def leave_command(
 async def remove_user_from_command(
     user_id: int = Body(..., embed=True),
     session: AsyncSession = Depends(get_session_with_commit),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    event_id: int = Depends(get_current_event_id)
 ):
     """Исключение пользователя из команды капитаном."""
     if not user:
@@ -365,7 +374,7 @@ async def remove_user_from_command(
     
     try:
         command_service = CommandService(session)
-        await command_service.remove_user_from_command(user, user_id)
+        await command_service.remove_user_from_command(user, user_id, event_id)
         return JSONResponse(
             status_code=200,
             content={"message": "Пользователь успешно исключен из команды"}
@@ -530,7 +539,8 @@ async def qr_add_score(
     token: str = Body(..., embed=True),
     score_data: ProgramScoreAdd = Body(...),
     session: AsyncSession = Depends(get_session_with_commit),
-    scanner_user: User = Depends(get_current_user)
+    scanner_user: User = Depends(get_current_user),
+    event_id: int = Depends(get_current_event_id)
 ):
     """Быстрое добавление баллов при сканировании QR-кода (только CTC/Организатор)."""
     # TODO: Перенести логику в ProgramService - DONE
@@ -541,7 +551,7 @@ async def qr_add_score(
     
     try:
         program_service = ProgramService(session)
-        result_data = await program_service.qr_add_score(token, score_data, scanner_user)
+        result_data = await program_service.qr_add_score(token, score_data, scanner_user, event_id)
         
         return {
             "ok": True,

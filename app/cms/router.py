@@ -378,7 +378,7 @@ class AdminProgramView(AdminPage):
                     # Получаем команды пользователей (можно оптимизировать, но пока оставим так)
                     commands_map = {}
                     for user_id in top_user_ids:
-                        command = await users_dao.find_user_command_in_event(user_id)
+                        command = await users_dao.find_user_command_in_event(user_id, event_id=1)
                         commands_map[user_id] = command
 
                     # Получаем все транзакции для этих пользователей одним запросом
@@ -461,7 +461,7 @@ class AdminProgramView(AdminPage):
                     })
                 
                 # Получаем команду пользователя, если есть
-                command = await users_dao.find_user_command_in_event(user_id)
+                command = await users_dao.find_user_command_in_event(user_id, event_id=1)
                 command_data = None
                 if command:
                     command_data = {
@@ -539,7 +539,7 @@ class AdminProgramView(AdminPage):
                         # Получаем команду пользователя
                         from app.auth.dao import UsersDAO
                         users_dao = UsersDAO(session)
-                        command = await users_dao.find_user_command_in_event(user_id)
+                        command = await users_dao.find_user_command_in_event(user_id, event_id=1)
                         
                         top_users.append({
                             "id": user_id,

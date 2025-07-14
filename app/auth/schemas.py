@@ -98,6 +98,10 @@ class SUserInfo(UserBase):
 class CommandName(BaseModel):
     name: str
 
+class CommandNameAndEvent(BaseModel):
+    name: str
+    event_id: int
+
 class CommandEdit(CommandName):
     language_id: int
 
