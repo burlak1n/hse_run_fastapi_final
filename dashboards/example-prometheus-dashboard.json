@@ -1,0 +1,29 @@
+{
+  "id": null,
+  "uid": "example-prometheus-dashboard",
+  "title": "Пример FastAPI Prometheus Dashboard",
+  "tags": ["prometheus", "fastapi"],
+  "timezone": "browser",
+  "schemaVersion": 30,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests Total (event_name)",
+      "id": 1,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "http_requests_total{event_name!=''}",
+          "legendFormat": "{{event_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+    }
+  ]
+} 

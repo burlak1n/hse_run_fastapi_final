@@ -1,0 +1,45 @@
+{
+  "id": null,
+  "uid": "fastapi-overview",
+  "title": "FastAPI Overview",
+  "tags": ["prometheus", "fastapi"],
+  "timezone": "browser",
+  "schemaVersion": 30,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests Total (event_name)",
+      "id": 1,
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "http_requests_total{event_name!=''}", "legendFormat": "{{event_name}}" }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Request Duration (seconds)",
+      "id": 2,
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le, event_name))", "legendFormat": "p95 {{event_name}}" }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Exceptions Total (event_name)",
+      "id": 3,
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "http_exceptions_total{event_name!=''}", "legendFormat": "{{event_name}}" }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+    }
+  ]
+} 

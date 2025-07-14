@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 # FastAPI Cache imports removed
 from loguru import logger
-from prometheus_fastapi_instrumentator import Instrumentator
 # Импорты CSRF
 # from fastapi_csrf_protect import CsrfProtect # Removed CSRF import
 # from fastapi_csrf_protect.exceptions import CsrfProtectError # Removed CSRF import
@@ -33,6 +32,12 @@ from app.quest.router import router as router_quest
 # Import FastStream broker
 from app.tasks.cleanup import broker as cleanup_broker
 from app.utils.template import render_template
+# Import Prometheus metrics
+from app.prometheus_metrics import (
+    PrometheusMetricsMiddleware,
+    AdminMetricsMiddleware,
+    setup_prometheus_metrics
+)
 
 # Настройки безопасности
 # Получаем домен из BASE_URL для добавления в разрешенные хосты и источники
@@ -41,7 +46,7 @@ base_domain = parsed_url.netloc
 base_scheme = parsed_url.scheme
 
 # Добавляем gopass.dev и hserun.gopass.dev в разрешенные хосты
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "localhost:8000", base_domain, "technoquestcroc.ru"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "localhost:8000", base_domain, "technoquestcroc.ru", "172.19.0.1"]
 
 ALLOWED_ORIGINS = [
     "http://localhost",
@@ -56,6 +61,8 @@ MAX_BODY_SIZE = 3 * 1024 * 1024
 # Ограничение количества запросов (100 запросов в минуту)
 RATE_LIMIT = 300
 RATE_PERIOD = 60  # секунд
+
+
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -149,11 +156,11 @@ class EventDomainMiddleware(BaseHTTPMiddleware):
             host = request.headers.get("x-forwarded-host", "")
         
         if host:
-            # Убираем порт если есть
+            # Убираем порт если есть (гарантированно)
             domain = host.split(":")[0]
             event_name = get_event_name_by_domain(domain)
             request.state.event_name = event_name
-            logger.info(f"Определено событие '{event_name}' для домена '{domain}'")
+            logger.info(f"Определено событие '{event_name}' для домена '{domain}' (host header: {host})")
         else:
             # Fallback на дефолтное событие
             request.state.event_name = "HSERUN29"
@@ -216,6 +223,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+
+
+
 # Настройка Middleware (CORS, TrustedHost, Security, Rate Limiting)
 def setup_middleware(app: FastAPI):
     # Add Request ID Middleware (should be one of the first)
@@ -223,6 +233,12 @@ def setup_middleware(app: FastAPI):
 
     # Добавляем middleware для определения события по домену
     app.add_middleware(EventDomainMiddleware)
+
+    # Добавляем middleware для сбора метрик Prometheus
+    app.add_middleware(PrometheusMetricsMiddleware)
+
+    # Добавляем middleware для сбора метрик админки
+    app.add_middleware(AdminMetricsMiddleware)
 
     # Настройка CORS
     app.add_middleware(
@@ -469,4 +485,6 @@ def register_routers(app: FastAPI) -> None:
 
 # Создание экземпляра приложения
 app = create_app()
-Instrumentator().instrument(app).expose(app)
+
+# Настройка Prometheus метрик
+setup_prometheus_metrics(app)

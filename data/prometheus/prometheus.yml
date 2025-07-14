@@ -42,8 +42,26 @@ scrape_configs:
     follow_redirects: true
     static_configs:
     - targets: 
-      - localhost:8000
+      - technoquestcroc.ru:8000
+      - hserun.ru:8000
       labels:
         environment: 'local'
         service: 'hse-run-fastapi'
         application: 'fastapi'
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: 'technoquestcroc.ru:8000'
+        target_label: __param_host
+        replacement: 'technoquestcroc.ru'
+      - source_labels: [__address__]
+        regex: 'technoquestcroc.ru:8000'
+        target_label: host
+        replacement: 'technoquestcroc.ru:8000'
+      - source_labels: [__address__]
+        regex: 'hserun.ru:8000'
+        target_label: __param_host
+        replacement: 'hserun.ru'
+      - source_labels: [__address__]
+        regex: 'hserun.ru:8000'
+        target_label: host
+        replacement: 'hserun.ru:8000'
