@@ -140,6 +140,8 @@ class Event(Base):
     end_time: Mapped[datetime] = mapped_column(nullable=True)
     # Связь с командами
     commands: Mapped[list["Command"]] = relationship("Command", back_populates="event")
+    # Связь с блоками
+    blocks: Mapped[list["Block"]] = relationship("Block", back_populates="event")
 
     def __repr__(self):
         return f"{self.name}"

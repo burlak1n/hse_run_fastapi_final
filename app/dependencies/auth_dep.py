@@ -3,11 +3,12 @@ from typing import List, Optional
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dao import SessionDAO, UsersDAO
+from app.auth.dao import SessionDAO, UsersDAO, EventsDAO
 from app.auth.models import User
 from app.dependencies.dao_dep import get_session_without_commit
-from app.exceptions import ForbiddenException
+from app.exceptions import ForbiddenException, EventNotFoundException
 from app.logger import logger
+from app.config import DOMAIN_EVENT_MAPPING
 
 
 def get_access_token(request: Request) -> Optional[str]:
@@ -36,6 +37,30 @@ def get_current_event_name(request: Request) -> str:
     event_name = getattr(request.state, "event_name", "HSERUN29")
     logger.debug(f"Получено событие из request.state: {event_name}")
     return event_name
+
+
+async def get_current_event_id(
+    request: Request,
+    session: AsyncSession = Depends(get_session_without_commit)
+) -> int:
+    """Получает ID текущего события по домену."""
+    # Получаем домен из request
+    host = request.headers.get("host", "").split(":")[0]  # Убираем порт если есть
+    
+    # Определяем имя события по домену
+    event_name = DOMAIN_EVENT_MAPPING.get(host, "HSERUN29")
+    logger.debug(f"Домен {host} соответствует событию: {event_name}")
+    
+    # Получаем ID события из базы
+    events_dao = EventsDAO(session)
+    event_id = await events_dao.get_event_id_by_name(event_name)
+    
+    if not event_id:
+        logger.error(f"Событие '{event_name}' не найдено в базе данных")
+        raise EventNotFoundException(detail=f"Event '{event_name}' not found")
+    
+    logger.debug(f"Получен ID события {event_name}: {event_id}")
+    return event_id
 
 
 async def get_current_user(

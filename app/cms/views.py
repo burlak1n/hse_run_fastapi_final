@@ -482,11 +482,13 @@ class AnswerAdmin(ModelView, model=Answer):
     column_list = [
         Answer.id,
         Answer.answer_text,
+        Answer.additional_field_value,
         Answer.question
     ]
     form_columns = [
         Answer.id,
         Answer.answer_text,
+        Answer.additional_field_value,
         Answer.question,
     ]
     column_searchable_list = ["answer_text"]

@@ -7,6 +7,10 @@ class Block(Base):
     """Модель для блоков квеста"""
     title: Mapped[str]  # Название блока
     
+    # Связь с мероприятием
+    event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False)
+    event: Mapped["Event"] = relationship("Event", back_populates="blocks")
+    
     # Связь с языком
     language_id: Mapped[int] = mapped_column(ForeignKey('languages.id'), nullable=False, default=1)
     language: Mapped["Language"] = relationship("Language", back_populates="blocks", lazy="joined")  # Используем строку для указания модели

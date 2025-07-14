@@ -3,8 +3,8 @@ from typing import List, Optional, Union
 
 
 class BlockFilter(BaseModel):
-    id: Optional[int] = None
     language_id: Optional[int] = None
+    event_id: Optional[int] = None
 
 class FindQuestionsForBlock(BaseModel):
     block_id: int
@@ -55,6 +55,7 @@ RiddleResponseData = Union[RiddleDetail, RiddleBrief]
 class BlockResponse(BaseModel):
     id: int
     title: str
+    event_id: int
     language_id: int
     # Include either riddles list OR counts/progress
     riddles: Optional[List[RiddleResponseData]] = None
@@ -66,10 +67,11 @@ class BlockResponse(BaseModel):
 
 # Main response schema for GET / endpoint
 class GetAllBlocksResponse(BaseModel):
-    ok: bool
+    ok: bool = True
     message: str
     team_score: int
     team_coins: int
+    event_id: int
     blocks: List[BlockResponse]
 
 # Response schema for GET /{block_id} endpoint
@@ -165,8 +167,10 @@ class QuestionStructureInfo(BaseModel):
 class BlockStructureInfo(BaseModel):
     id: int
     title: str
+    image_path: Optional[str]
+    event_id: int
     language_id: int
-    questions: List[QuestionStructureInfo] = []
+    questions: List[QuestionStructureInfo]
 
 class EventQuestStructureResponse(BaseModel):
     ok: bool = True
@@ -273,6 +277,7 @@ class BlockStructureInfo(BaseModel):
     id: int
     title: str
     image_path: Optional[str]
+    event_id: int
     language_id: int
     questions: List[QuestionStructureInfo]
 

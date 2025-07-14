@@ -24,6 +24,22 @@ class BlocksDAO(BaseDAO):
         except SQLAlchemyError as e:
             logger.error(f"Ошибка при поиске всех записей по фильтрам {filter_dict}: {e}")
             raise
+
+    async def find_by_event_and_language(self, event_id: int, language_id: int) -> List[Block]:
+        """Специализированный метод для фильтрации блоков по событию и языку"""
+        try:
+            logger.info(f"Поиск блоков для события {event_id} и языка {language_id}")
+            query = select(self.model).where(
+                self.model.event_id == event_id,
+                self.model.language_id == language_id
+            )
+            result = await self._session.execute(query)
+            records = result.scalars().all()
+            logger.info(f"Найдено {len(records)} блоков для события {event_id} и языка {language_id}")
+            return records
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка при поиске блоков для события {event_id} и языка {language_id}: {e}")
+            raise
         
 class QuestionsDAO(BaseDAO):
     """DAO для работы с вопросами"""

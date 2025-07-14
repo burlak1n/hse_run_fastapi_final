@@ -18,16 +18,28 @@ def compare_strings(str1: str, str2: str) -> bool:
 
 # --- Вспомогательные функции для сборки ответа --- 
 
-async def build_block_response(block: Block, command: Command, include_riddles: bool = False, session: AsyncSession = None) -> dict:
-    """Создание структуры ответа для блока (принимает command) -- Теперь в utils"""
+async def build_block_response(block: Block, command: Command, include_riddles: bool = False, session: AsyncSession = None, event_id: int = None) -> dict:
+    """Создание структуры ответа для блока (принимает command и event_id домена) -- Теперь в utils"""
     if not session:
         logger.error("Сессия не передана в build_block_response")
         # Лучше выбросить исключение или вернуть ошибку явно
         return {
             "id": block.id,
             "title": block.title,
+            "event_id": block.event_id,
             "language_id": block.language_id,
             "error": "Failed to calculate progress (no session)"
+        }
+
+    # Проверяем, что блок принадлежит тому же событию, что и домен
+    if event_id and block.event_id != event_id:
+        logger.error(f"Блок {block.id} принадлежит событию {block.event_id}, а домен - событию {event_id}")
+        return {
+            "id": block.id,
+            "title": block.title,
+            "event_id": block.event_id,
+            "language_id": block.language_id,
+            "error": "Block does not belong to domain's event"
         }
 
     questions_dao = QuestionsDAO(session)
@@ -36,6 +48,7 @@ async def build_block_response(block: Block, command: Command, include_riddles: 
     response = {
         "id": block.id,
         "title": block.title,
+        "event_id": block.event_id,
         "language_id": block.language_id
     }
     if include_riddles:

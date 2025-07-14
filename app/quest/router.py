@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.auth.dao import CommandsDAO, EventsDAO, UsersDAO
 from app.auth.models import Command, CommandsUser, Language, User
-from app.dependencies.auth_dep import get_current_event_name, require_role
+from app.dependencies.auth_dep import get_current_event_name, require_role, get_current_event_id
 from app.dependencies.dao_dep import get_session_with_commit
 from app.dependencies.quest_dep import get_authenticated_user_and_command
 # Import exceptions
@@ -46,24 +46,30 @@ router = APIRouter()
 async def get_all_quest_blocks(
     session: AsyncSession = Depends(get_session_with_commit),
     auth_data: Tuple[User, Command] = Depends(get_authenticated_user_and_command),
+    event_id: int = Depends(get_current_event_id),
     include_riddles: bool = False
 ):
-    """Получает все блоки квеста"""
+    """Получает все блоки квеста для события домена и языка команды"""
     user, command = auth_data
         
     attempts_dao = AttemptsDAO(session)
     team_stats = await attempts_dao.calculate_team_score_and_coins(command.id)
 
     blocks_dao = BlocksDAO(session)
-    blocks = await blocks_dao.find_all(filters=BlockFilter(language_id=command.language_id))
+    # Используем специализированный метод для фильтрации по event_id домена и language_id команды
+    blocks = await blocks_dao.find_by_event_and_language(
+        event_id=event_id,
+        language_id=command.language_id
+    )
 
-    block_responses = [await build_block_response(block, command, include_riddles, session) for block in blocks]
+    block_responses = [await build_block_response(block, command, include_riddles, session, event_id) for block in blocks]
 
     return GetAllBlocksResponse(
         ok=True,
         message="Blocks load successful",
         team_score=team_stats["score"],
         team_coins=team_stats["coins"],
+        event_id=event_id,
         blocks=block_responses
     )
 
@@ -140,7 +146,8 @@ async def get_commands_stats(
 async def get_insider_tasks_status(
     command_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    scanner_user: User = Depends(require_role(["insider", "organizer", "ctc"]))
+    scanner_user: User = Depends(require_role(["insider", "organizer", "ctc"])),
+    event_id: int = Depends(get_current_event_id)
 ):
     """
     Возвращает список загадок, назначенных текущему инсайдеру,
@@ -165,10 +172,10 @@ async def get_insider_tasks_status(
         
         assigned_questions = await q_insider_dao.find_questions_by_insider(scanner_user.id)
         
-        # --- Добавлено: Фильтрация по языку команды ---
+        # --- Добавлено: Фильтрация по языку команды и событию домена ---
         filtered_questions = [
             q for q in assigned_questions 
-            if q.block.language_id == command_language_id
+            if q.block.language_id == command_language_id and q.block.event_id == event_id
         ]
         # --- Конец добавленного ---
 
@@ -209,7 +216,8 @@ async def get_insider_tasks_status(
 async def get_quest_block(
     block_id: int,
     session: AsyncSession = Depends(get_session_with_commit),
-    auth_data: Tuple[User, Command] = Depends(get_authenticated_user_and_command)
+    auth_data: Tuple[User, Command] = Depends(get_authenticated_user_and_command),
+    event_id: int = Depends(get_current_event_id)
 ):
     """Получает конкретный блок квеста по его ID"""
     user, command = auth_data
@@ -223,10 +231,16 @@ async def get_quest_block(
     if not block:
         raise BlockNotFoundException
 
+    # Проверяем принадлежность блока к событию домена
+    if block.event_id != event_id:
+        logger.warning(f"Попытка доступа к блоку {block_id} события {block.event_id} с домена события {event_id}")
+        raise BlockNotFoundException
+
     if block.language_id != command.language_id:
+        logger.warning(f"Попытка доступа к блоку {block_id} языка {block.language_id} командой языка {command.language_id}")
         raise LanguageMismatchException
 
-    block_response = await build_block_response(block, command, True, session)
+    block_response = await build_block_response(block, command, True, session, event_id)
 
     return GetBlockResponse(
         ok=True,
@@ -612,29 +626,20 @@ async def get_event_quest_structure(
 
         logger.info(f"Найдено событие '{event_name}' с ID {event_id}")
 
-        # Получаем только ID языков напрямую, чтобы избежать ошибки в find_all
-        language_query = select(Language.id)
-        language_result = await session.execute(language_query)
-        event_language_ids = language_result.scalars().all()
-
-        if not event_language_ids:
-            logger.info(f"Для события '{event_name}' не найдено языков. Возвращаем пустую структуру.")
-            return EventQuestStructureResponse(event_name=event_name, blocks=[])
-
-        logger.info(f"Найдены ID языков для события '{event_name}': {event_language_ids}")
-
-        # --- Изменено начало: Заменяем blocks_dao.find_all на явный select с options ---
+        # Получаем блоки для конкретного события с оптимизированной загрузкой вопросов
         stmt = (
             select(Block)
-            .where(Block.language_id.in_(event_language_ids))
+            .where(Block.event_id == event_id)
             .options(selectinload(Block.questions))
-            # .order_by(Block.order) # Сортировка будет применена позже
         )
         result = await session.execute(stmt)
         blocks = result.scalars().unique().all()
-        # --- Изменено конец ---
 
-        logger.info(f"Найдено {len(blocks)} блоков для языков события '{event_name}'")
+        if not blocks:
+            logger.info(f"Для события '{event_name}' не найдено блоков. Возвращаем пустую структуру.")
+            return EventQuestStructureResponse(event_name=event_name, blocks=[])
+
+        logger.info(f"Найдено {len(blocks)} блоков для события '{event_name}'")
 
         # Собираем все ID вопросов из блоков
         all_question_ids = []
@@ -675,6 +680,7 @@ async def get_event_quest_structure(
                     id=block.id,
                     title=block.title,
                     image_path=block.image_path,
+                    event_id=block.event_id,
                     language_id=block.language_id,
                     questions=response_questions,
                 )
