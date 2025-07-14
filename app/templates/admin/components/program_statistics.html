@@ -106,15 +106,11 @@
                 : `${url}?_t=${timestamp}&_r=${uniqueId}`;
                 
             const response = await fetch(nocacheUrl, {
-                method: 'GET', // Явно указываем метод
+                method: 'GET',
                 headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0',
                     'X-Requested-With': 'XMLHttpRequest',
-                    'X-No-Cache': uniqueId // Добавляем дополнительный заголовок для обхода кэширования
-                },
-                cache: 'no-store' // Явно указываем fetch API не использовать кэш
+                    'X-No-Cache': uniqueId
+                }
             });
             
             if (!response.ok) throw new Error(errorMsg);

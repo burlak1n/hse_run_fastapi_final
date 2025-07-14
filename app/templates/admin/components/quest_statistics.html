@@ -180,13 +180,9 @@
             const response = await fetch(nocacheUrl, {
                 method: 'GET',
                 headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0',
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-No-Cache': uniqueId
-                },
-                cache: 'no-store'
+                }
             });
             
             if (!response.ok) throw new Error(errorMsg);

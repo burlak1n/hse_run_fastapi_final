@@ -75,10 +75,7 @@ def set_tokens(response: Response, session_token: str):
         expires=expires.strftime("%a, %d %b %Y %H:%M:%S GMT")
     )
     
-    # Добавляем заголовок для предотвращения кеширования страниц с аутентификацией
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    # HTTP caching removed
 
 async def create_session(user_id: int) -> Session:
     """Создание новой сессии (асинхронная обертка)."""
@@ -179,36 +176,4 @@ def format_participants(command_users: List[CommandsUser], include_role: bool = 
         
     return participants
 
-# Cache Key Builder for User Profile
-def user_profile_key_builder(func, *args, **kwargs) -> str:
-    """Generates a cache key for user profile data based on user ID."""
-    # Assumes the decorated function is called with user_id as the first argument
-    # or has user object with an 'id' attribute.
-    # Example usage: @cache(key_builder=user_profile_key_builder)
-    
-    user_dependency_index = -1 # Check if user object is passed via Depends
-    try:
-        for i, arg in enumerate(args):
-             if isinstance(arg, User):
-                 user_dependency_index = i
-                 break
-        # Also check kwargs if necessary, though less common for Depends
-    except ImportError:
-         pass # User model might not be available here
-
-    if user_dependency_index != -1:
-        user_id = args[user_dependency_index].id
-    elif 'user_id' in kwargs:
-         user_id = kwargs['user_id']
-    elif args and isinstance(args[0], int):
-         # Simplistic assumption: first integer arg is user_id
-         # Make this more robust if needed
-         user_id = args[0]
-    else:
-         # Cannot determine user_id, fallback or raise error
-         # Using function name as fallback - less ideal
-         # Consider raising an error if user_id is mandatory for the key
-         prefix = f"{func.__module__}:{func.__name__}"
-         return f"{prefix}:{args}:{kwargs}" # Default-like key
-
-    return f"user_profile:{user_id}"
+# Cache Key Builder removed

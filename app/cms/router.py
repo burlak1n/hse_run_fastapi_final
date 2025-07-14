@@ -832,13 +832,9 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
         # Разрешаем доступ к публичным путям
         if self.is_public_path(request.url.path):
             response = await call_next(request)
-            # Добавляем кеширование для статических файлов
-            if request.url.path.startswith("/admin/statics"):
-                response.headers["Cache-Control"] = "public, max-age=3600"
-
-                if not DEBUG:   
-                    # Добавляем заголовок для обеспечения безопасности контента
-                    response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
+            if not DEBUG:   
+                # Добавляем заголовок для обеспечения безопасности контента
+                response.headers["Content-Security-Policy"] = "upgrade-insecure-requests"
             return response
             
         # Получаем и проверяем пользователя
@@ -847,14 +843,12 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
         if not user:
             logger.debug("Пользователь не аутентифицирован при доступе к админке")
             response = RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return response
         
         # Проверяем роль пользователя
         if not user.role or user.role.name != "organizer":
             logger.debug(f"Попытка доступа к админке пользователем с ролью {user.role.name if user.role else 'None'}")
             response = RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return response
             
         # Сохраняем пользователя в запросе для использования в представлениях
@@ -874,9 +868,6 @@ def require_organizer_role(func: Callable[..., T]) -> Callable[..., T]:
         user = request.scope.get("user")
         if not user or not hasattr(user, "role") or user.role.name != "organizer":
             response = RedirectResponse(url="/registration", status_code=status.HTTP_303_SEE_OTHER)
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
             return response
         return await func(request, *args, **kwargs)
     return wrapper

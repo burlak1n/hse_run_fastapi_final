@@ -1,8 +1,7 @@
 import base64
 from typing import Any, Dict, List, Optional, Tuple
 
-# Cache imports
-from fastapi_cache import FastAPICache
+# Cache imports removed
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,19 +197,7 @@ class UserService:
             await self.session.commit()
             logger.info(f"User profile {user.id} updated and committed successfully.")
             
-            # Invalidate cache AFTER successful commit ONLY if Redis is used
-            if settings.USE_REDIS:
-                try:
-                    cache_backend = FastAPICache.get_backend()
-                    key = f"user_profile:{user.id}" # Manually construct the key
-                    await cache_backend.delete(key)
-                    logger.info(f"[Redis Cache] Invalidated for user profile {user.id} with key: {key}")
-                except Exception as cache_err:
-                     logger.error(f"[Redis Cache] Failed to invalidate cache for user {user.id}: {cache_err}")
-            else:
-                # If using InMemory cache, clearing might not be strictly necessary 
-                # or could clear too much. For now, we just log.
-                logger.info("[InMemory Cache] Skipping explicit invalidation for user profile update.")
+            # Cache invalidation removed
 
         except SQLAlchemyError as db_err:
              logger.exception(f"Database error updating profile for user {user.id}")

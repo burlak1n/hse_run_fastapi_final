@@ -2,8 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
-# Cache imports
-from fastapi_cache.decorator import cache
+# Cache imports removed
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +14,7 @@ from app.auth.schemas import (CommandEdit, CommandInfo,
 # Импортируем сервисы
 from app.auth.services import (CommandService, EventService, ProgramService,
                                QRService, StatsService, UserService)
-from app.auth.utils import set_tokens, user_profile_key_builder
+from app.auth.utils import set_tokens
 from app.dependencies.auth_dep import (get_access_token,
                                        get_current_event_name,
                                        get_current_user)
@@ -82,7 +81,6 @@ async def logout(response: Response):
 # =====================
 
 @router.get("/me")
-@cache(expire=3600, key_builder=user_profile_key_builder) # Cache for 1 hour
 async def get_me(
     user_data: Optional[User] = Depends(get_current_user),
     session: AsyncSession = Depends(get_session_without_commit) # Используем без коммита, т.к. только чтение

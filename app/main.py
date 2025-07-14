@@ -11,10 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-# Import FastAPI Cache
-from fastapi_cache import FastAPICache
-from fastapi_cache.backends.inmemory import InMemoryBackend
-from fastapi_cache.backends.redis import RedisBackend
+# FastAPI Cache imports removed
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 # Импорты CSRF
@@ -180,11 +177,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         # Защита от MIME-типов
         response.headers["X-Content-Type-Options"] = "nosniff"
-        # Запрет кеширования для приватных данных
-        if request.url.path.startswith(("/api/auth/me", "/api/quest")):
-            response.headers["Cache-Control"] = "no-store, max-age=0"
-        else:
-            response.headers["Cache-Control"] = "public, max-age=3600"
+        # HTTP caching removed
 
         # HSTS для перенаправления на HTTPS
         if not DEBUG:  # Только в production
@@ -277,15 +270,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await cleanup_broker.start()
             logger.info("FastStream broker started.")
 
-            # Create Redis client directly for FastAPI Cache
-            redis_cache = aioredis.from_url(
-                settings.REDIS_URL, encoding="utf-8", decode_responses=True
-            )
-            FastAPICache.init(RedisBackend(redis_cache), prefix="fastapi-cache")
-            logger.info(
-                f"FastAPI Cache initialized with Redis backend at {settings.REDIS_URL}"
-            )
-
             # Initialize Redis session service using FastStream broker
             await init_redis_session_service(cleanup_broker)
             logger.info("Redis session service initialized.")
@@ -296,13 +280,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             )
             # Decide if startup should fail. For now, continue without Redis.
             settings.USE_REDIS = False  # Disable Redis usage if init fails
-            FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
-            logger.warning("Falling back to InMemory cache.")
+            logger.warning("Redis initialization failed.")
     else:
-        logger.info("Redis is DISABLED. Using InMemory cache.")
-        # Initialize with InMemory backend if Redis is disabled
-        FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache-inmemory")
-        logger.info("FastAPI Cache initialized with InMemory backend.")
+        logger.info("Redis is DISABLED.")
 
     yield  # Application runs here
 
@@ -315,17 +295,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Error stopping FastStream broker.")
 
-    # Close cache connection if Redis was used and initialized
-    if settings.USE_REDIS:
-        try:
-            await FastAPICache.clear()  # Clear cache keys if needed
-            logger.info("Redis cache cleared.")
-        except Exception:
-            logger.exception("Error clearing Redis cache.")
-    else:
-        # Clear in-memory cache if needed (optional)
-        await FastAPICache.clear()
-        logger.info("InMemory cache cleared.")
+    # Cache cleanup removed
 
 
 # Unified Error Handlers
