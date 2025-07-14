@@ -16,10 +16,26 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
 sys.path.append('/projects/hse_run_full/backend')
 
+# Импортируем базовые модели
 from app.auth.models import (
     User, Role, Command, CommandsUser, UserProfile, 
-    Event, Language, RoleUserCommand, CommandInvite
+    Event, RoleUserCommand, CommandInvite
 )
+
+# Создаем отдельную модель Language для бота без связей
+from sqlalchemy.orm import Mapped, mapped_column
+from app.dao.database import Base, str_uniq
+
+class BotLanguage(Base):
+    """Модель Language для бота без связей с блоками"""
+    __tablename__ = 'languages'
+    __table_args__ = {'extend_existing': True}
+    
+    name: Mapped[str_uniq]
+    
+    def __repr__(self):
+        return f"{self.name}"
+
 from app.logger import logger
 from dotenv import load_dotenv
 
@@ -148,11 +164,11 @@ def setup_bot_admin_views(admin: Admin):
     
     # Профили пользователей (email и доп. информация)
     class BotUserProfileAdmin(ModelView, model=UserProfile):
-        column_list = [UserProfile.id, UserProfile.user, UserProfile.email, UserProfile.created_at]
+        column_list = [UserProfile.id, "user", UserProfile.email, UserProfile.created_at]
         column_searchable_list = [UserProfile.email]
         column_sortable_list = [UserProfile.id, UserProfile.created_at]
         
-        form_columns = [UserProfile.user, UserProfile.email]
+        form_columns = ["user", UserProfile.email]
         
         name = "📧 Профили пользователей"
         name_plural = "📧 Профили пользователей"
@@ -164,7 +180,7 @@ def setup_bot_admin_views(admin: Admin):
     # Команды (основной фокус бота)
     class BotCommandAdmin(ModelView, model=Command):
         column_list = [
-            Command.id, Command.name, Command.event, Command.language, 
+            Command.id, Command.name, Command.event, Command.language_id, 
             Command.created_at
         ]
         column_searchable_list = [Command.name]
@@ -172,7 +188,7 @@ def setup_bot_admin_views(admin: Admin):
         # Убираем проблемные фильтры для relationship полей
         column_filters = []
         
-        form_columns = [Command.name, Command.event, Command.language]
+        form_columns = [Command.name, Command.event, Command.language_id]
         
         name = "⚔️ Команды"
         name_plural = "⚔️ Команды"
@@ -183,12 +199,12 @@ def setup_bot_admin_views(admin: Admin):
     
     # Участники команд (управление составом)
     class BotCommandsUserAdmin(ModelView, model=CommandsUser):
-        column_list = [CommandsUser.command, CommandsUser.user, CommandsUser.role]
+        column_list = ["command", "user", CommandsUser.role]
         # Убираем проблемные фильтры для relationship полей
         column_filters = []
         column_sortable_list = []
         
-        form_columns = [CommandsUser.command, CommandsUser.user, CommandsUser.role]
+        form_columns = ["command", "user", CommandsUser.role]
         
         name = "👥 Участники команд"
         name_plural = "👥 Участники команд"
@@ -198,7 +214,7 @@ def setup_bot_admin_views(admin: Admin):
     # Приглашения команд (UUID ссылки)
     class BotCommandInviteAdmin(ModelView, model=CommandInvite):
         column_list = [
-            CommandInvite.id, CommandInvite.command, 
+            CommandInvite.id, "command", 
             CommandInvite.invite_uuid, CommandInvite.created_at
         ]
         column_searchable_list = [CommandInvite.invite_uuid]
@@ -206,7 +222,7 @@ def setup_bot_admin_views(admin: Admin):
         # Убираем проблемные фильтры для relationship полей
         column_filters = []
         
-        form_columns = [CommandInvite.command, CommandInvite.invite_uuid]
+        form_columns = ["command", CommandInvite.invite_uuid]
         
         name = "🔗 Приглашения команд"
         name_plural = "🔗 Приглашения команд"
@@ -252,12 +268,12 @@ def setup_bot_admin_views(admin: Admin):
         icon = "fa-solid fa-calendar-days"
     
     # Языки программирования
-    class BotLanguageAdmin(ModelView, model=Language):
-        column_list = [Language.id, Language.name, Language.created_at]
-        column_searchable_list = [Language.name]
-        column_sortable_list = [Language.id, Language.name, Language.created_at]
+    class BotLanguageAdmin(ModelView, model=BotLanguage):
+        column_list = [BotLanguage.id, BotLanguage.name, BotLanguage.created_at]
+        column_searchable_list = [BotLanguage.name]
+        column_sortable_list = [BotLanguage.id, BotLanguage.name, BotLanguage.created_at]
         
-        form_columns = [Language.name]
+        form_columns = [BotLanguage.name]
         
         name = "💻 Языки программирования"
         name_plural = "💻 Языки программирования"

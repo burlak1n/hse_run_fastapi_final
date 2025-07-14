@@ -89,8 +89,8 @@ class CommandAdmin(ModelView, model=Command):
         return super().sort_query(stmt, request)
 
 class BlockAdmin(ModelView, model=Block):
-    column_list = [Block.id, Block.title, Block.language, Block.image_path]
-    form_columns = [Block.title, Block.language, Block.image_path]
+    column_list = [Block.id, Block.title, Block.language, Block.image_path, Block.event]
+    form_columns = [Block.title, Block.language, Block.image_path, Block.event]
     column_searchable_list = ["title"]
     form_overrides = {
         'image_path': FileField,

@@ -8,7 +8,7 @@ class Block(Base):
     title: Mapped[str]  # Название блока
     
     # Связь с мероприятием
-    event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False)
+    event_id: Mapped[int] = mapped_column(ForeignKey('events.id'), nullable=False, default=1)
     event: Mapped["Event"] = relationship("Event", back_populates="blocks")
     
     # Связь с языком
