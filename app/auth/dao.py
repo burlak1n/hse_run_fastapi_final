@@ -453,6 +453,111 @@ class UsersDAO(BaseDAO):
             logger.error(f"Ошибка при поиске всех пользователей, ищущих команду: {e}")
             raise
 
+    async def count_all_users_by_event(self, event_id: int) -> int:
+        """
+        Подсчитывает количество пользователей, участвующих в командах текущего события
+        """
+        logger.info(f"Подсчет пользователей по event_id={event_id}")
+        from sqlalchemy import func
+        query = (
+            select(func.count(func.distinct(self.model.id)))
+            .select_from(self.model)
+            .join(CommandsUser, self.model.id == CommandsUser.user_id)
+            .join(Command, CommandsUser.command_id == Command.id)
+            .where(Command.event_id == event_id)
+        )
+        result = await self._session.execute(query)
+        return result.scalar() or 0
+
+    async def count_users_with_role_by_event(self, event_id: int) -> int:
+        """
+        Подсчитывает количество пользователей с ролью, участвующих в командах текущего события
+        """
+        logger.info(f"Подсчет пользователей с ролью по event_id={event_id}")
+        from sqlalchemy import func
+        query = (
+            select(func.count(func.distinct(self.model.id)))
+            .select_from(self.model)
+            .join(CommandsUser, self.model.id == CommandsUser.user_id)
+            .join(Command, CommandsUser.command_id == Command.id)
+            .where(Command.event_id == event_id)
+            .where(self.model.role_id.isnot(None))
+        )
+        result = await self._session.execute(query)
+        return result.scalar() or 0
+
+    async def count_users_looking_for_friends_by_event(self, event_id: int) -> int:
+        """
+        Подсчитывает количество пользователей, ищущих команду, участвующих в командах текущего события
+        """
+        logger.info(f"Подсчет пользователей, ищущих команду, по event_id={event_id}")
+        from sqlalchemy import func
+        query = (
+            select(func.count(func.distinct(self.model.id)))
+            .select_from(self.model)
+            .join(CommandsUser, self.model.id == CommandsUser.user_id)
+            .join(Command, CommandsUser.command_id == Command.id)
+            .where(Command.event_id == event_id)
+            .where(self.model.is_looking_for_friends == True)
+        )
+        result = await self._session.execute(query)
+        return result.scalar() or 0
+
+    async def get_registrations_by_date_by_event(self, event_id: int, role_name: str = None) -> list:
+        """
+        Получает статистику регистраций пользователей по дням для event_id
+        """
+        logger.info(f"Получение регистраций по дням для event_id={event_id}, role={role_name}")
+        from datetime import datetime
+        from sqlalchemy import func
+        from app.auth.models import Role
+        cutoff_date = datetime(2025, 4, 7, 0, 0, 0)
+        query = (
+            select(
+                func.date(self.model.created_at).label("date"),
+                func.count(self.model.id).label("count"),
+            )
+            .select_from(self.model)
+            .join(CommandsUser, self.model.id == CommandsUser.user_id)
+            .join(Command, CommandsUser.command_id == Command.id)
+            .where(Command.event_id == event_id)
+            .where(self.model.created_at >= cutoff_date)
+        )
+        if role_name:
+            query = query.join(Role, self.model.role_id == Role.id).where(Role.name == role_name)
+        query = query.group_by(func.date(self.model.created_at)).order_by(func.date(self.model.created_at))
+        result = await self._session.execute(query)
+        registrations_by_date = result.all()
+        formatted_result = []
+        for row in registrations_by_date:
+            date_str = row.date.strftime("%d.%m.%Y") if hasattr(row.date, "strftime") else str(row.date)
+            formatted_result.append({"date": date_str, "count": row.count})
+        return formatted_result
+
+    async def get_users_by_role_by_event(self, event_id: int) -> dict:
+        """
+        Получает распределение пользователей по ролям для event_id
+        """
+        logger.info(f"Получение распределения пользователей по ролям для event_id={event_id}")
+        from sqlalchemy import func
+        from app.auth.models import Role
+        query = (
+            select(Role.name, func.count(self.model.id).label("count"))
+            .select_from(self.model)
+            .join(CommandsUser, self.model.id == CommandsUser.user_id)
+            .join(Command, CommandsUser.command_id == Command.id)
+            .join(Role, self.model.role_id == Role.id, isouter=True)
+            .where(Command.event_id == event_id)
+            .group_by(Role.name)
+        )
+        result = await self._session.execute(query)
+        role_counts = result.all()
+        roles_distribution = {}
+        for row in role_counts:
+            role_name = row.name if row.name else "неактивные"
+            roles_distribution[role_name] = row.count
+        return roles_distribution
+
 
 class CommandsUsersDAO(BaseDAO):
     model = CommandsUser

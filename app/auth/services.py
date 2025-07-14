@@ -254,9 +254,17 @@ class QRService:
         self.users_dao = UsersDAO(session)
         self.program_dao = ProgramDAO(session)
 
-    async def generate_qr_for_user(self, user: User, session_token: str) -> Dict[str, str]:
+    async def generate_qr_for_user(self, user: User, session_token: str, domain: str = None) -> Dict[str, str]:
         """Генерирует QR-код для пользователя."""
-        qr_link = f"{settings.BASE_URL}/qr/verify?token={session_token}"
+        # Используем переданный домен или fallback на настройки
+        if domain:
+            # Определяем схему (http/https) на основе домена
+            scheme = "https" if domain not in ["localhost", "127.0.0.1"] else "http"
+            base_url = f"{scheme}://{domain}"
+        else:
+            base_url = settings.BASE_URL
+            
+        qr_link = f"{base_url}/qr/verify?token={session_token}"
         qr_data = generate_qr_image(qr_link)
         return {
             "qr_link": qr_link,
@@ -699,7 +707,7 @@ class StatsService:
         self.event_dao = EventsDAO(session)
 
     async def get_registration_stats(self, current_user: User, event_name: str) -> Dict[str, Any]:
-        """Собирает и возвращает статистику по регистрациям."""
+        """Собирает и возвращает статистику по регистрациям только для текущего события."""
         logger.info(f"Запрос статистики регистраций пользователем {current_user.id} для события '{event_name}'")
 
         # Проверяем роль пользователя
@@ -731,15 +739,15 @@ class StatsService:
                     team_sizes[size] += 1
                     team_members_sum += size
                 
-            # Подсчитываем общее количество пользователей и активных пользователей (с ролью)
-            total_users = await self.users_dao.count_all_users()
-            active_users = await self.users_dao.count_users_with_role()
-            looking_for_team = await self.users_dao.count_users_looking_for_friends()
+            # Подсчитываем общее количество пользователей и активных пользователей (с ролью) только для event_id
+            total_users = await self.users_dao.count_all_users_by_event(curr_event_id)
+            active_users = await self.users_dao.count_users_with_role_by_event(curr_event_id)
+            looking_for_team = await self.users_dao.count_users_looking_for_friends_by_event(curr_event_id)
             
             # Получаем статистику регистраций по дням (только для гостей)
             registrations_by_date = []
             try:
-                registrations_by_date = await self.users_dao.get_registrations_by_date("guest")
+                registrations_by_date = await self.users_dao.get_registrations_by_date_by_event(curr_event_id, "guest")
                 logger.info(f"Получены данные о регистрациях гостей по дням: {len(registrations_by_date)} записей")
             except Exception as e:
                 logger.error(f"Ошибка при получении данных о регистрациях гостей по дням: {e}", exc_info=True)
@@ -747,12 +755,12 @@ class StatsService:
             # Получаем статистику пользователей по ролям
             roles_distribution = {}
             try:
-                roles_distribution = await self.users_dao.get_users_by_role()
+                roles_distribution = await self.users_dao.get_users_by_role_by_event(curr_event_id)
                 logger.info(f"Получены данные о распределении пользователей по ролям")
             except Exception as e:
                 logger.error(f"Ошибка при получении данных о распределении пользователей по ролям: {e}", exc_info=True)
                 
-            # Получаем статистику пользователей с необычным ФИО
+            # Получаем статистику пользователей с необычным ФИО (оставляем без фильтрации по event_id)
             unusual_name_count = 0
             unusual_name_registrations = []
             try:

@@ -15,9 +15,10 @@ from sqlalchemy.orm import selectinload
 from app.config import DEBUG
 from app.dao.database import engine
 from app.cms import views
-from app.dependencies.auth_dep import get_access_token
+from app.dependencies.auth_dep import get_access_token, get_current_event_id
 from app.dependencies.template_dep import get_templates
 from app.auth.dao import UsersDAO, SessionDAO
+from app.exceptions import EventNotFoundException
 from app.logger import logger
 
 # Определяем возвращаемый тип для декораторов
@@ -324,29 +325,58 @@ class AdminProgramView(AdminPage):
         from app.auth.models import Program, User, Command, CommandsUser
 
         try:
+            # Получаем event_id из запроса
+            try:
+                event_id = await get_current_event_id(request, AsyncSession(engine))
+                logger.info(f"Получен event_id для статистики программы: {event_id}")
+            except EventNotFoundException as e:
+                logger.error(f"Событие не найдено при получении статистики программы: {e}")
+                return JSONResponse({
+                    "ok": False,
+                    "message": "Событие не найдено"
+                }, status_code=status.HTTP_404_NOT_FOUND)
+            
             async with AsyncSession(engine) as session:
                 users_dao = UsersDAO(session)
                 
-                total_users = await users_dao.count_all_users()
+                # Подсчитываем пользователей только для текущего события
+                total_users = await users_dao.count_all_users_by_event(event_id)
                 
-                active_users_query = select(
-                    func.count(func.distinct(Program.user_id))
+                # Подсчитываем активных пользователей только для текущего события
+                # Считаем пользователей, которые состоят в командах текущего события И имеют баллы
+                users_in_event_subquery = (
+                    select(CommandsUser.user_id)
+                    .join(Command, CommandsUser.command_id == Command.id)
+                    .where(Command.event_id == event_id)
+                    .distinct()
+                )
+                
+                # Подсчитываем активных пользователей только для текущего события
+                # Активными считаем пользователей, которые состоят в командах текущего события
+                active_users_query = (
+                    select(func.count(func.distinct(CommandsUser.user_id)))
+                    .join(Command, CommandsUser.command_id == Command.id)
+                    .where(Command.event_id == event_id)
                 )
                 active_users_result = await session.execute(active_users_query)
                 active_users = active_users_result.scalar_one_or_none() or 0
 
-                # Запрос для получения баллов команд (остается)
+                # Запрос для получения баллов команд только для текущего события
+                # Проблема: в модели Program нет event_id, поэтому показываем только команды без баллов
+                # или фильтруем по времени создания (если события не пересекаются по времени)
                 team_scores_query = select(
                     Command.name.label('team_name'),
-                    func.sum(Program.score).label('total_score')
+                    func.coalesce(func.sum(Program.score), 0).label('total_score')
                 ).join(
                     CommandsUser, Command.id == CommandsUser.command_id
-                ).join(
+                ).outerjoin(
                     Program, CommandsUser.user_id == Program.user_id
+                ).where(
+                    Command.event_id == event_id
                 ).group_by(
                     Command.id, Command.name
                 ).order_by(
-                    func.sum(Program.score).desc()
+                    func.coalesce(func.sum(Program.score), 0).desc()
                 )
                 team_scores_result = await session.execute(team_scores_query)
                 team_scores_data = team_scores_result.all()
@@ -354,18 +384,36 @@ class AdminProgramView(AdminPage):
                     {"name": row.team_name, "score": float(row.total_score)}
                     for row in team_scores_data
                 ]
+                logger.info(f"Команды в статистике для event_id {event_id}: {[team['name'] for team in team_scores]}")
                 
-                # Запрос для получения ID топ-10 пользователей по сумме баллов
-                top_user_ids_query = select(
-                    Program.user_id
-                ).group_by(
-                    Program.user_id
-                ).order_by(
-                    func.sum(Program.score).desc()
-                ).limit(10)
+                # Запрос для получения ID топ-10 пользователей по сумме баллов только для текущего события
+                # Важно: считаем баллы только за команды текущего события
+                # Используем подзапрос для получения пользователей, состоящих в командах текущего события
+                users_in_event_subquery = (
+                    select(CommandsUser.user_id)
+                    .join(Command, CommandsUser.command_id == Command.id)
+                    .where(Command.event_id == event_id)
+                    .distinct()
+                )
+                
+                # Запрос для получения ID топ-10 пользователей по сумме баллов только для текущего события
+                # Показываем только пользователей из команд текущего события, даже если у них нет баллов
+                top_user_ids_query = (
+                    select(
+                        CommandsUser.user_id,
+                        func.coalesce(func.sum(Program.score), 0).label('total_score')
+                    )
+                    .join(Command, CommandsUser.command_id == Command.id)
+                    .outerjoin(Program, CommandsUser.user_id == Program.user_id)
+                    .where(Command.event_id == event_id)
+                    .group_by(CommandsUser.user_id)
+                    .order_by(func.coalesce(func.sum(Program.score), 0).desc())
+                    .limit(10)
+                )
                 
                 top_user_ids_result = await session.execute(top_user_ids_query)
-                top_user_ids = [row.user_id for row in top_user_ids_result.all()]
+                top_users_data = top_user_ids_result.all()
+                top_user_ids = [row.user_id for row in top_users_data]
                 
                 # Собираем данные о пользователях и их транзакциях
                 top_users_with_transactions = []
@@ -375,14 +423,19 @@ class AdminProgramView(AdminPage):
                     users_info_result = await session.execute(users_info_query)
                     users_map = {user.id: user for user in users_info_result.scalars().all()}
 
-                    # Получаем команды пользователей (можно оптимизировать, но пока оставим так)
+                    # Получаем команды пользователей
                     commands_map = {}
                     for user_id in top_user_ids:
-                        command = await users_dao.find_user_command_in_event(user_id, event_id=1)
+                        command = await users_dao.find_user_command_in_event(user_id, event_id=event_id)
                         commands_map[user_id] = command
 
                     # Получаем все транзакции для этих пользователей одним запросом
-                    transactions_query = select(Program).where(Program.user_id.in_(top_user_ids)).order_by(Program.created_at.desc())
+                    # Показываем все транзакции пользователей из команд текущего события
+                    transactions_query = (
+                        select(Program)
+                        .where(Program.user_id.in_(top_user_ids))
+                        .order_by(Program.created_at.desc())
+                    )
                     transactions_result = await session.execute(transactions_query)
                     all_transactions = transactions_result.scalars().all()
 
@@ -432,6 +485,16 @@ class AdminProgramView(AdminPage):
         from app.auth.dao import ProgramDAO, UsersDAO
         
         try:
+            # Получаем event_id из запроса
+            try:
+                event_id = await get_current_event_id(request, AsyncSession(engine))
+            except EventNotFoundException as e:
+                logger.error(f"Событие не найдено при получении статистики пользователя: {e}")
+                return JSONResponse({
+                    "ok": False,
+                    "message": "Событие не найдено"
+                }, status_code=status.HTTP_404_NOT_FOUND)
+            
             async with AsyncSession(engine) as session:
                 program_dao = ProgramDAO(session)
                 users_dao = UsersDAO(session)
@@ -461,7 +524,7 @@ class AdminProgramView(AdminPage):
                     })
                 
                 # Получаем команду пользователя, если есть
-                command = await users_dao.find_user_command_in_event(user_id, event_id=1)
+                command = await users_dao.find_user_command_in_event(user_id, event_id=event_id)
                 command_data = None
                 if command:
                     command_data = {
@@ -510,16 +573,34 @@ class AdminProgramView(AdminPage):
             limit = 10
                 
         try:
+            # Получаем event_id из запроса
+            try:
+                event_id = await get_current_event_id(request, AsyncSession(engine))
+            except EventNotFoundException as e:
+                logger.error(f"Событие не найдено при получении топ пользователей: {e}")
+                return JSONResponse({
+                    "ok": False,
+                    "message": "Событие не найдено"
+                }, status_code=status.HTTP_404_NOT_FOUND)
+            
             async with AsyncSession(engine) as session:
-                # Создаем запрос для получения пользователей с суммой баллов
-                query = select(
-                    Program.user_id,
-                    func.sum(Program.score).label('total_score')
-                ).group_by(
-                    Program.user_id
-                ).order_by(
-                    func.sum(Program.score).desc()
-                ).limit(limit)
+                # Создаем запрос для получения пользователей с суммой баллов только для текущего события
+                query = (
+                    select(
+                        Program.user_id,
+                        func.sum(Program.score).label('total_score')
+                    )
+                    .join(CommandsUser, Program.user_id == CommandsUser.user_id)
+                    .join(Command, CommandsUser.command_id == Command.id)
+                    .where(Command.event_id == event_id)
+                    .group_by(
+                        Program.user_id
+                    )
+                    .order_by(
+                        func.sum(Program.score).desc()
+                    )
+                    .limit(limit)
+                )
                 
                 result = await session.execute(query)
                 top_users_scores = result.all()
@@ -539,7 +620,7 @@ class AdminProgramView(AdminPage):
                         # Получаем команду пользователя
                         from app.auth.dao import UsersDAO
                         users_dao = UsersDAO(session)
-                        command = await users_dao.find_user_command_in_event(user_id, event_id=1)
+                        command = await users_dao.find_user_command_in_event(user_id, event_id=event_id)
                         
                         top_users.append({
                             "id": user_id,
@@ -646,19 +727,50 @@ class AdminQuestView(AdminPage):
         from app.auth.models import User, Command, CommandsUser, Language # Добавляем Language для языка
 
         try:
+            # Получаем event_id из запроса
+            try:
+                event_id = await get_current_event_id(request, AsyncSession(engine))
+                logger.info(f"Получен event_id для статистики квеста: {event_id}")
+            except EventNotFoundException as e:
+                logger.error(f"Событие не найдено при получении статистики квеста: {e}")
+                return JSONResponse({
+                    "ok": False,
+                    "message": "Событие не найдено"
+                }, status_code=status.HTTP_404_NOT_FOUND)
+            
             async with AsyncSession(engine) as session:
                 attempts_dao = AttemptsDAO(session)
                 users_dao = UsersDAO(session)
 
-                # Пример: Топ пользователей по кол-ву попыток
+                # Сначала получаем пользователей из команд текущего события
+                users_in_event_query = select(CommandsUser.user_id).join(
+                    Command, CommandsUser.command_id == Command.id
+                ).where(Command.event_id == event_id).distinct()
+                
+                users_in_event_result = await session.execute(users_in_event_query)
+                users_in_event_ids = [row.user_id for row in users_in_event_result.all()]
+                
+                if not users_in_event_ids:
+                    # Если нет пользователей в командах текущего события, возвращаем пустой результат
+                    return JSONResponse({
+                        "ok": True,
+                        "data": {
+                            "top_users_by_attempts": [],
+                            "all_question_locations": {}
+                        }
+                    })
+                
+                # Топ пользователей по кол-ву попыток только для пользователей из команд текущего события
                 top_users_by_attempts_query = select(
                     Attempt.user_id,
                     func.count(Attempt.id).label('attempts_count')
+                ).where(
+                    Attempt.user_id.in_(users_in_event_ids)
                 ).group_by(
                     Attempt.user_id
                 ).order_by(
                     func.count(Attempt.id).desc()
-                ) # Увеличим лимит, чтобы видеть больше пользователей
+                )
 
                 top_users_result = await session.execute(top_users_by_attempts_query)
                 top_attempts_rows = top_users_result.all()
@@ -672,11 +784,14 @@ class AdminQuestView(AdminPage):
                     users_info_result = await session.execute(users_info_query)
                     users_map = {user.id: user for user in users_info_result.unique().scalars().all()}
 
-                    # Получаем связки CommandsUser и ЗАГРУЖАЕМ команды с языком И пользователями
+                    # Получаем связки CommandsUser и ЗАГРУЖАЕМ команды с языком И пользователями для текущего события
+                    # Все пользователи уже из команд текущего события, поэтому фильтрация по event_id не нужна
                     commands_user_query = select(CommandsUser).options(
                         selectinload(CommandsUser.command).selectinload(Command.language),
                         selectinload(CommandsUser.command).selectinload(Command.users) # Загружаем пользователей команды
-                    ).where(CommandsUser.user_id.in_(user_ids))
+                    ).where(
+                        CommandsUser.user_id.in_(user_ids)
+                    )
                     commands_user_result = await session.execute(commands_user_query)
                     
                     commands_map = {}
@@ -697,11 +812,14 @@ class AdminQuestView(AdminPage):
                         if user_id not in commands_map:
                             commands_map[user_id] = None
 
-                    # Получаем ВСЕ попытки для этих пользователей одним запросом
+                    # Получаем попытки для пользователей из команд текущего события
+                    # Все пользователи уже из команд текущего события
                     all_attempts_query = select(Attempt).options(
                         selectinload(Attempt.attempt_type), # Загружаем тип попытки
                         selectinload(Attempt.question)     # Загружаем вопрос
-                    ).where(Attempt.user_id.in_(user_ids)).order_by(Attempt.created_at.desc())
+                    ).where(
+                        Attempt.user_id.in_(user_ids)
+                    ).order_by(Attempt.created_at.desc())
                     
                     all_attempts_result = await session.execute(all_attempts_query)
                     # Используем unique() чтобы избежать дубликатов из-за selectinload
@@ -752,9 +870,13 @@ class AdminQuestView(AdminPage):
                 # Сортируем итоговый список пользователей по имени (или другому критерию)
                 top_users_data.sort(key=lambda x: x.get('full_name', '').lower())
 
-                # Получаем все вопросы, их геоданные и язык
+                # Получаем вопросы из блоков текущего события, их геоданные и язык
                 all_questions_query = select(Question).options(
                     selectinload(Question.block).selectinload(Block.language) # Загружаем блок и язык
+                ).join(
+                    Block, Question.block_id == Block.id
+                ).where(
+                    Block.event_id == event_id
                 )
                 all_questions_result = await session.execute(all_questions_query)
                 all_question_locations = {

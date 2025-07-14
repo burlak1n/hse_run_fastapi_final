@@ -222,18 +222,6 @@ class BlockAdmin(ModelView, model=Block):
             if file_path.exists():
                 os.remove(file_path)
 
-        # Удаляем файл image_path_answered, если он существует
-        if model.image_path_answered:
-            file_path = Path("app/static/img") / model.image_path_answered
-            if file_path.exists():
-                os.remove(file_path)
-
-        # Удаляем файл hint_path, если он существует
-        if model.hint_path:
-            file_path = Path("app/static/img") / model.hint_path
-            if file_path.exists():
-                os.remove(file_path)
-
         return await super().on_model_delete(model, request)
 
 

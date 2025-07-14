@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 # Cache imports removed
 from pydantic import BaseModel
@@ -114,6 +114,7 @@ async def get_me(
 
 @router.get("/qr")
 async def get_me_qr_code(
+    request: Request,
     user_data: Optional[User] = Depends(get_current_user),
     session_token: Optional[str] = Depends(get_access_token),
     session: AsyncSession = Depends(get_session_without_commit) # Сессия не нужна, но оставим для единообразия
@@ -123,9 +124,13 @@ async def get_me_qr_code(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не авторизован")
         
     try:
+        # Получаем домен из заголовка Host
+        host = request.headers.get("host", "")
+        domain = host.split(":")[0] if host else None
+        
         # Сервис не требует сессии для этой операции
         qr_service = QRService(session) # Передаем сессию, хотя она может быть не нужна
-        qr_info = await qr_service.generate_qr_for_user(user_data, session_token)
+        qr_info = await qr_service.generate_qr_for_user(user_data, session_token, domain)
         return JSONResponse(qr_info)
     except Exception as e:
         logger.error(f"Ошибка при генерации QR для пользователя {user_data.id}: {e}", exc_info=True)
