@@ -60,13 +60,13 @@ DOMAIN_EVENT_MAPPING: Dict[str, str] = {
 EVENT_CONFIGS: Dict[str, EventConfig] = {
     "HSERUN29": EventConfig(),
     "KRUN": EventConfig(
-        address="Новый адрес",
-        date="28 апреля 2025",
+        address="Волочаевская ул., 5, корп. 1",
+        date="15 июля 2025",
         number="1",
-        start_time="13:00",
-        end_time="17:00",
-        name="TECHNOQUESTCROC",
-        description="TECHNOQUESTCROC - культурно-исторический квест по Москве для компании KROK",
+        start_time="17:00",
+        end_time="20:30",
+        name="TECHNO QUEST",
+        description="Большой культурно-айтишный квест по Москве специально для кроковцев",
         version="1.0.0",
     ),
 }
